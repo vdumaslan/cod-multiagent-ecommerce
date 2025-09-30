@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/
+*.csv
+*.tsv
+*.parquet
+*.db
+
+# Models
+models/
+*.pt
+*.bin
+*.h5
+
+# OS
+.DS_Store
