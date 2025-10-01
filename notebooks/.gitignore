@@ -7,13 +7,6 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Data
-data/
-*.csv
-*.tsv
-*.parquet
-*.db
-
 # Models
 models/
 *.pt
