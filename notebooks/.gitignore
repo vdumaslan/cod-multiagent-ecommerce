@@ -12,6 +12,8 @@ models/
 *.pt
 *.bin
 *.h5
+*.csv
+*.parquet
 
 # OS
 .DS_Store
