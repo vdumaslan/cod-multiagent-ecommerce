@@ -11,4 +11,8 @@ __pycache__/
 .DS_Store
 .ipynb_checkpoints/
 .env
+# Ignore large local data files
+*.csv
+*.parquet
+
 
