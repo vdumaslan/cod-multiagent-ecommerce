@@ -4,3 +4,8 @@ numpy
 matplotlib
 seaborn
 scikit-learn
+streamlit
+faiss-cpu
+sentence-transformers
+transformers
+torch
