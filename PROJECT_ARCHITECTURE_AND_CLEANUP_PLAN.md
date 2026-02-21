@@ -123,6 +123,28 @@ Rules for a "solid dataset" deliverable:
 - Use temporal split where applicable (avoid future leakage in recommendation/churn tasks).
 - Version every dataset artifact with hash + pipeline run id.
 
+### Current dataset readiness verdict (local repo check, 2026-02-21)
+
+Verdict: partially ready.
+
+- Good enough for prototype agents: yes (Amazon-focused discovery/ranking/pricing + basic sentiment).
+- Good enough for final rubric-heavy multi-agent system: not yet.
+
+Why not yet:
+
+- The repo currently shows mostly Amazon processed assets under `data/processed/`.
+- `data/processed/amazon_reviews_clean.csv` appears header-only (no rows).
+- Required cross-domain datasets in project scope (Twitter support, Online Retail II, Telco churn) are not yet integrated here.
+- Gold evaluation labels are missing for robust agent benchmarking (relevance labels, aspect sentiment labels, orchestrator success labels).
+
+To make datasets final-ready:
+
+1. Add all planned datasets into one canonical schema (`users/products/events/reviews/sessions`).
+2. Build evaluation sets for retrieval/ranking/sentiment/orchestration.
+3. Enforce temporal split and leakage checks in pipeline code.
+4. Add automated data-quality checks (nulls, duplicates, schema drift, class imbalance).
+5. Version every dataset and model-input artifact with run id + hash.
+
 ## 5) Preprocess + Data Pipeline Plan
 
 Pipeline stages:
