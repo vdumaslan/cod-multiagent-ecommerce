@@ -3,6 +3,15 @@
 Date: 2026-02-21  
 Scope: repository cleanup + production-ready architecture plan for Human-AI collaborative agents (Supabase-first)
 
+## Project Constraint (Mandatory)
+
+This project must run at zero paid cost:
+
+- No paid API usage (no token billing).
+- No subscriptions or credits.
+- Use only open-source models/tools and free tiers.
+- If free-tier limits are hit, fallback to fully local execution.
+
 ## 1) What the Professor/Rubrics Require (from `text`)
 
 The grading emphasis is not only on models, but full system quality:
@@ -163,35 +172,42 @@ Data contracts to enforce between stages:
 - `review_signal` contract (item_id, sentiment_score, aspect_scores, confidence)
 - `retrieval_candidate` contract (query_id, item_id, score_source, score, timestamp)
 
-## 6) Model Stack Recommendation (Best + practical tiers)
+## 6) Model Stack Recommendation (Free-only)
 
-As-of 2026-02-21, recommended by tier:
+As-of 2026-02-21, recommended open-source stack:
 
-Tier A (maximize quality for demo/research):
+Tier A (best quality under free constraint):
 
-- Orchestrator + reasoning agent: OpenAI `GPT-5.1` (frontier reasoning/coding profile).
-- Embeddings: OpenAI `text-embedding-3-large` (high-quality multilingual embedding).
-- Reranking: Cohere `rerank-v3.5` or higher available rerank tier.
-- Optional second-opinion debater: Anthropic Claude Sonnet/Opus 4 family.
+- Orchestrator + debate synthesis: `Qwen2.5-7B-Instruct` or `Llama-3.1-8B-Instruct`.
+- Embeddings: `BAAI/bge-large-en-v1.5`.
+- Reranking: `BAAI/bge-reranker-v2-m3`.
+- Sentiment/aspect baseline: `cardiffnlp/twitter-roberta-base-sentiment-latest`.
 
-Tier B (strong quality + lower cost):
+Tier B (lighter local compute):
 
-- Orchestrator: GPT-5 mini / Claude Sonnet.
-- Embeddings: Voyage `voyage-4` / Cohere `embed-v4.0` / strong open model fallback.
-- Rerank: Cohere rerank.
+- Orchestrator/ranking: `Qwen2.5-3B-Instruct` or `Mistral-7B-Instruct`.
+- Embeddings: `sentence-transformers/all-MiniLM-L6-v2`.
+- Rerank fallback: cross-encoder open reranker or cosine similarity only.
 
-Tier C (open-weight/local fallback):
+Tier C (CPU-first emergency fallback):
 
-- Orchestrator/ranking: Mistral family (latest stable production model).
-- Embeddings: sentence-transformers/modern open embedding model.
-- Keep evaluation harness identical so model swaps are measurable.
+- Orchestrator: distilled small instruct model via `llama.cpp`/`Ollama`.
+- Retrieval: FAISS + lexical BM25 fallback.
+- Sentiment: scikit-learn TF-IDF + linear classifier baseline.
+- Keep the same evaluation harness so swaps remain measurable.
 
 Important: do not claim "best" by name alone. Run your own benchmark harness:
 
 - Retrieval: Recall@K, nDCG@K, MRR.
 - Ranking: nDCG, pairwise accuracy.
 - Sentiment/aspect: macro F1, calibration/confidence.
-- End-to-end agent system: success@1, explanation quality rubric, latency p95, cost/request.
+- End-to-end agent system: success@1, explanation quality rubric, latency p95, cost/request (should be near zero).
+
+Runtime/deployment (free):
+
+- Local model serving: `Ollama` or `llama.cpp` (or `vLLM` if GPU is available).
+- Vector search: `FAISS` local index.
+- Pipeline/orchestration: Python scripts + Prefect open-source mode (optional).
 
 ## 7) Agent Architecture (Human-collaborative CoD)
 
@@ -242,6 +258,12 @@ Core Supabase components:
 - Edge Functions for thin secure wrappers (webhooks, inference gateway, scheduled jobs).
 - Realtime optional for live agent progress events in UI.
 
+Budget note:
+
+- Use Supabase free tier only.
+- Monitor free-tier quotas; design local fallback scripts for export/import if quotas are exceeded.
+- Never depend on paid Supabase add-ons for core grading-path functionality.
+
 Data model sketch:
 
 - `products`, `reviews`, `customers`, `sessions`, `queries`, `recommendations`, `agent_runs`, `evaluation_runs`.
@@ -267,7 +289,7 @@ P0 (immediate):
 P1 (core architecture):
 
 1. Set up Supabase project, schema migrations, and seed data.
-2. Implement API layer with strict request/response contracts.
+2. Implement API layer with strict request/response contracts and local-model adapters.
 3. Add offline evaluation harness and baseline metrics table.
 
 P2 (demo polish):
@@ -306,13 +328,13 @@ Day 7:
 
 ## References used for current recommendations
 
-- OpenAI Models overview (GPT-5.1 family): https://platform.openai.com/docs/models/model-endpoint-
-- OpenAI embedding model (`text-embedding-3-large`): https://platform.openai.com/docs/models/text-embedding-3-large
 - Supabase Edge Functions docs: https://supabase.com/docs/guides/functions
-- Supabase AI & vector docs (concepts/quickstarts): https://supabase.com/docs/guides/ai/concepts
-- Supabase compute/vector indexing guidance: https://supabase.com/docs/guides/ai/choosing-compute-addon
-- Anthropic models overview (Claude family): https://docs.anthropic.com/en/docs/models-overview
-- Cohere rerank docs: https://docs.cohere.com/reference/rerank
-- Cohere embeddings docs (`embed-v4.0`): https://docs.cohere.com/docs/cohere-embed
-- Voyage embeddings docs (`voyage-4` family): https://docs.voyageai.com/docs/embeddings
-- Mistral model docs: https://docs.mistral.ai/
+- Supabase AI & vector concepts: https://supabase.com/docs/guides/ai/concepts
+- Ollama docs: https://github.com/ollama/ollama
+- llama.cpp docs: https://github.com/ggml-org/llama.cpp
+- vLLM docs: https://docs.vllm.ai/
+- Sentence Transformers docs: https://www.sbert.net/
+- FAISS docs: https://github.com/facebookresearch/faiss
+- Hugging Face model card (`BAAI/bge-large-en-v1.5`): https://huggingface.co/BAAI/bge-large-en-v1.5
+- Hugging Face model card (`BAAI/bge-reranker-v2-m3`): https://huggingface.co/BAAI/bge-reranker-v2-m3
+- Hugging Face model card (`cardiffnlp/twitter-roberta-base-sentiment-latest`): https://huggingface.co/cardiffnlp/twitter-roberta-base-sentiment-latest
