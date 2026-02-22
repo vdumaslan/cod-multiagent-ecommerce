@@ -1,7 +1,7 @@
 # CoD Multi-Agent E-Commerce: Architecture + Cleanup Plan
 
 Date: 2026-02-21  
-Scope: repository cleanup + production-ready architecture plan for Human-AI collaborative agents (Supabase-first)
+Scope: repository cleanup + production-ready architecture plan for Human-AI collaborative agents (BigQuery + Prefect + Jupyter cloud-first)
 
 ## Project Constraint (Mandatory)
 
@@ -10,7 +10,8 @@ This project must run at zero paid cost:
 - No paid API usage (no token billing).
 - No subscriptions or credits.
 - Use only open-source models/tools and free tiers.
-- If free-tier limits are hit, fallback to fully local execution.
+- Default execution must be cloud-first.
+- Local GPU use is allowed only for training/agent setup experiments when cloud free runtimes are insufficient.
 
 ## 1) What the Professor/Rubrics Require (from `text`)
 
@@ -46,21 +47,21 @@ Critical issues to fix:
 - Secret/token leakage risk: `notebooks/env` contains a token-like value and command.
 - `.gitignore` ignores all `*.csv` and `*.parquet`; this can hide whether required demo artifacts are reproducible from code.
 
-## 3) Target Architecture (Supabase-first)
+## 3) Target Architecture (BigQuery + Prefect + Jupyter, cloud-first)
 
 ### High-level design
 
 1. Data Ingestion Layer
 - Source datasets pulled by version-pinned scripts.
-- Raw files stored in Supabase Storage (`raw/`) + checksums in Postgres.
+- Raw snapshots persisted in cloud artifact storage (for reproducibility) and loaded into BigQuery staging tables.
 
 2. Data Processing Layer
-- Python pipeline jobs (batch) clean, normalize, deduplicate, and feature-engineer.
-- Outputs written to curated Postgres tables + optional parquet snapshots in Storage (`curated/`).
+- BigQuery SQL transformations + Python preprocessing jobs orchestrated by Prefect.
+- Outputs written to BigQuery curated datasets and exported as parquet artifacts for reproducibility.
 
 3. Feature + Retrieval Layer
 - Product/review embeddings generated in batch.
-- Store vectors in Postgres (`pgvector`) or Supabase vector tooling.
+- Store retrieval metadata in BigQuery tables; persist vector index artifacts as files.
 - Hybrid retrieval: vector similarity + metadata filters + optional lexical fallback.
 
 4. Agent Layer (modular services)
@@ -73,11 +74,11 @@ Critical issues to fix:
 5. App/API Layer
 - Web app UI consumes backend API.
 - Backend endpoints expose `query -> recommendation + rationale + agent traces`.
-- Auth with Supabase Auth; data access protected by RLS.
+- Serving APIs read curated outputs from BigQuery and model artifacts from cloud storage.
 
 6. Observability + Evaluation Layer
-- Store prompts, versions, latency, and outputs per run.
-- Offline eval tables for metrics and A/B comparisons.
+- Store prompts, versions, latency, outputs, and eval metrics in BigQuery evaluation tables.
+- Track pipeline runs and retries in Prefect run history.
 
 ### Suggested repository structure
 
@@ -101,12 +102,14 @@ cod-multiagent-ecommerce/
     schemas/
       contracts.py            # pydantic I/O contracts
     services/
-      supabase_client.py
+      bigquery_client.py
       model_router.py
-  supabase/
-    migrations/
-    functions/                # edge functions if used
-    seed.sql
+  flows/
+    prefect_flow.py           # orchestrated pipeline flow
+  infra/
+    bigquery/
+      schema.sql
+      transforms.sql
   data/
     sample/                   # tiny test fixtures only
   tests/
@@ -205,9 +208,10 @@ Important: do not claim "best" by name alone. Run your own benchmark harness:
 
 Runtime/deployment (free):
 
-- Local model serving: `Ollama` or `llama.cpp` (or `vLLM` if GPU is available).
-- Vector search: `FAISS` local index.
-- Pipeline/orchestration: Python scripts + Prefect open-source mode (optional).
+- Cloud notebooks (Jupyter/Colab/Kaggle) for training and batch jobs.
+- Pipeline orchestration: Prefect (free tier/open-source) triggering BigQuery and notebook tasks.
+- Vector search artifacts: `FAISS` index files stored in cloud artifacts.
+- Optional local GPU runs only for training/agent setup acceleration.
 
 ## 7) Agent Architecture (Human-collaborative CoD)
 
@@ -248,34 +252,33 @@ If time is tight:
 - Keep Streamlit for final demo but modularize backend first.
 - If time allows, upgrade to React/Next.js frontend with FastAPI backend for cleaner architecture story.
 
-## 9) Supabase Design Recommendations
+## 9) Cloud Stack Design Recommendations (BigQuery + Prefect + Jupyter)
 
-Core Supabase components:
+Core components:
 
-- Postgres as system of record.
-- Auth + RLS for team/user isolation.
-- Storage for raw/curated artifacts.
-- Edge Functions for thin secure wrappers (webhooks, inference gateway, scheduled jobs).
-- Realtime optional for live agent progress events in UI.
-
-Budget note:
-
-- Use Supabase free tier only.
-- Monitor free-tier quotas; design local fallback scripts for export/import if quotas are exceeded.
-- Never depend on paid Supabase add-ons for core grading-path functionality.
+- BigQuery Sandbox for staging, transformation, analytics, and evaluation tables.
+- Prefect for scheduled orchestration, retries, and run tracking.
+- Jupyter notebooks (cloud runtime) for model training, embedding generation, and analysis.
+- Cloud artifact storage for parquet snapshots and FAISS/model artifacts.
 
 Data model sketch:
 
 - `products`, `reviews`, `customers`, `sessions`, `queries`, `recommendations`, `agent_runs`, `evaluation_runs`.
-- `embeddings_products` table with vector column and index.
-- Materialized views for dashboard metrics.
+- Retrieval artifacts managed as versioned files plus metadata tables.
+- Materialized views/tables for dashboard metrics.
+
+Operational constraints and mitigations:
+
+- BigQuery Sandbox limits and table expiration require scheduled refresh/rebuild jobs.
+- Keep canonical ingestion scripts and snapshots so environment can be recreated quickly.
+- Keep dataset size demo-focused and rubric-aligned.
 
 Security and ops:
 
 - Move all secrets to env vars (never in repo).
-- Enforce service-role key usage only in backend.
-- Add migration-based schema control (`supabase/migrations`).
-- Add CI job: lint + tests + migration check + small pipeline smoke test.
+- Use service-account credentials only in pipeline/runtime environments.
+- Keep schema as SQL files under version control (`infra/bigquery/*.sql`).
+- Add CI job: lint + tests + pipeline smoke test.
 
 ## 10) Priority Cleanup Backlog (Execution Order)
 
@@ -288,8 +291,8 @@ P0 (immediate):
 
 P1 (core architecture):
 
-1. Set up Supabase project, schema migrations, and seed data.
-2. Implement API layer with strict request/response contracts and local-model adapters.
+1. Set up BigQuery dataset/schema, Prefect flow definitions, and seed jobs.
+2. Implement API layer with strict request/response contracts and cloud-model adapters.
 3. Add offline evaluation harness and baseline metrics table.
 
 P2 (demo polish):
@@ -310,7 +313,7 @@ P2 (demo polish):
 ## 12) Suggested Next Build Sprint (7 days)
 
 Day 1-2:
-- repo cleanup + secrets fix + module scaffolding + Supabase schema
+- repo cleanup + secrets fix + module scaffolding + BigQuery schema + Prefect flow setup
 
 Day 3-4:
 - ingestion/transform/embed scripts + candidate retrieval API
@@ -328,11 +331,13 @@ Day 7:
 
 ## References used for current recommendations
 
-- Supabase Edge Functions docs: https://supabase.com/docs/guides/functions
-- Supabase AI & vector concepts: https://supabase.com/docs/guides/ai/concepts
-- Ollama docs: https://github.com/ollama/ollama
-- llama.cpp docs: https://github.com/ggml-org/llama.cpp
-- vLLM docs: https://docs.vllm.ai/
+- BigQuery Sandbox docs: https://cloud.google.com/bigquery/docs/sandbox
+- BigQuery quotas and limits docs: https://cloud.google.com/bigquery/quotas
+- Prefect docs: https://docs.prefect.io/
+- Jupyter docs: https://docs.jupyter.org/en/latest/
+- Hugging Face Datasets docs: https://huggingface.co/docs/datasets/index
+- Kaggle notebooks docs: https://www.kaggle.com/docs/notebooks
+- Google Colab docs: https://research.google.com/colaboratory/faq.html
 - Sentence Transformers docs: https://www.sbert.net/
 - FAISS docs: https://github.com/facebookresearch/faiss
 - Hugging Face model card (`BAAI/bge-large-en-v1.5`): https://huggingface.co/BAAI/bge-large-en-v1.5
