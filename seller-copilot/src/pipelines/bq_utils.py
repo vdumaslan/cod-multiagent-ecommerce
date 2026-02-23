@@ -30,6 +30,16 @@ def dataset_exists(project_id: str, dataset_id: str) -> bool:
         return False
 
 
+def table_row_count(project_id: str, dataset_id: str, table_name: str) -> int:
+    client = get_client(project_id)
+    table_id = f"`{project_id}.{dataset_id}.{table_name}`"
+    try:
+        rows = list(client.query(f"SELECT COUNT(*) FROM {table_id}").result())
+        return int(rows[0][0]) if rows else 0
+    except gexc.NotFound:
+        return 0
+
+
 def ensure_pipeline_runs_table(project_id: str, dataset_id: str) -> None:
     client = get_client(project_id)
     table_id = f"{project_id}.{dataset_id}.pipeline_runs"

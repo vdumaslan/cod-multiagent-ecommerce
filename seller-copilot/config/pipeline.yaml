@@ -6,6 +6,7 @@ project:
 pipeline:
   max_rows_per_source: 120000
   chunk_size: 20000
+  reuse_existing_stage: true
   random_seed: 42
   split:
     train: 0.8
@@ -34,7 +35,7 @@ sources:
       - raw/review_categories/Sports_and_Outdoors.jsonl
       - raw/review_categories/Office_Products.jsonl
       - raw/review_categories/Tools_and_Home_Improvement.jsonl
-    target_rows: 200000
+    target_rows: 100000
     target_table: stg_amazon_reviews
 
   amazon_meta:
@@ -47,12 +48,12 @@ sources:
       - raw/meta_categories/meta_Sports_and_Outdoors.jsonl
       - raw/meta_categories/meta_Office_Products.jsonl
       - raw/meta_categories/meta_Tools_and_Home_Improvement.jsonl
-    target_rows: 120000
+    target_rows: 100000
     target_table: stg_amazon_meta
 
   twitter_customer_support:
     kind: multi_huggingface_text
-    target_rows: 120000
+    target_rows: 100000
     datasets:
       - dataset_id: tweet_eval
         subset: sentiment
@@ -67,7 +68,7 @@ sources:
     kind: huggingface_tabular
     dataset_id: attik/Online-Retail-II-UCI
     split: train
-    target_rows: 120000
+    target_rows: 100000
     target_table: stg_online_retail
 
   telco_churn:

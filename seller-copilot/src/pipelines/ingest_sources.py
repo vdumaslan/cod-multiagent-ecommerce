@@ -13,7 +13,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from bq_utils import load_dataframe
+from bq_utils import load_dataframe, table_row_count
 from pipeline_config import load_pipeline_config
 
 
@@ -284,74 +284,100 @@ def ingest_all(config_path: str, project_id: str, dataset: str, max_rows: int | 
     pipe_cfg = cfg.get("pipeline", {})
     default_rows = int(pipe_cfg.get("max_rows_per_source", 100000))
     chunk_size = int(pipe_cfg.get("chunk_size", 20000))
+    reuse_existing_stage = bool(pipe_cfg.get("reuse_existing_stage", True))
 
     sources = cfg.get("sources", {})
     results: dict[str, int] = {}
 
     amazon_rows = _source_row_limit(sources["amazon_reviews"], default_rows, max_rows)
-    amazon_df = load_amazon_reviews(sources["amazon_reviews"], amazon_rows)
-    _write_table_in_chunks(
-        amazon_df,
-        project_id,
-        dataset,
-        sources["amazon_reviews"]["target_table"],
-        chunk_size=chunk_size,
-        partition_field="ingested_at",
-        clustering_fields=["product_id", "source"],
-    )
-    results["stg_amazon_reviews"] = len(amazon_df)
+    amazon_table = sources["amazon_reviews"]["target_table"]
+    existing = table_row_count(project_id, dataset, amazon_table)
+    if reuse_existing_stage and existing >= amazon_rows:
+        results[amazon_table] = existing
+    else:
+        amazon_df = load_amazon_reviews(sources["amazon_reviews"], amazon_rows)
+        _write_table_in_chunks(
+            amazon_df,
+            project_id,
+            dataset,
+            amazon_table,
+            chunk_size=chunk_size,
+            partition_field="ingested_at",
+            clustering_fields=["product_id", "source"],
+        )
+        results[amazon_table] = len(amazon_df)
 
     amazon_meta_rows = _source_row_limit(sources["amazon_meta"], default_rows, max_rows)
-    amazon_meta_df = load_amazon_meta(sources["amazon_meta"], amazon_meta_rows)
-    _write_table_in_chunks(
-        amazon_meta_df,
-        project_id,
-        dataset,
-        sources["amazon_meta"]["target_table"],
-        chunk_size=chunk_size,
-        partition_field="ingested_at",
-        clustering_fields=["product_id", "source"],
-    )
-    results["stg_amazon_meta"] = len(amazon_meta_df)
+    amazon_meta_table = sources["amazon_meta"]["target_table"]
+    existing = table_row_count(project_id, dataset, amazon_meta_table)
+    if reuse_existing_stage and existing >= amazon_meta_rows:
+        results[amazon_meta_table] = existing
+    else:
+        amazon_meta_df = load_amazon_meta(sources["amazon_meta"], amazon_meta_rows)
+        _write_table_in_chunks(
+            amazon_meta_df,
+            project_id,
+            dataset,
+            amazon_meta_table,
+            chunk_size=chunk_size,
+            partition_field="ingested_at",
+            clustering_fields=["product_id", "source"],
+        )
+        results[amazon_meta_table] = len(amazon_meta_df)
 
     twitter_rows = _source_row_limit(sources["twitter_customer_support"], default_rows, max_rows)
-    twitter_df = load_twitter_support(sources["twitter_customer_support"], twitter_rows)
-    _write_table_in_chunks(
-        twitter_df,
-        project_id,
-        dataset,
-        sources["twitter_customer_support"]["target_table"],
-        chunk_size=chunk_size,
-        partition_field="ingested_at",
-        clustering_fields=["ticket_id", "source"],
-    )
-    results["stg_twitter_support"] = len(twitter_df)
+    twitter_table = sources["twitter_customer_support"]["target_table"]
+    existing = table_row_count(project_id, dataset, twitter_table)
+    if reuse_existing_stage and existing >= twitter_rows:
+        results[twitter_table] = existing
+    else:
+        twitter_df = load_twitter_support(sources["twitter_customer_support"], twitter_rows)
+        _write_table_in_chunks(
+            twitter_df,
+            project_id,
+            dataset,
+            twitter_table,
+            chunk_size=chunk_size,
+            partition_field="ingested_at",
+            clustering_fields=["ticket_id", "source"],
+        )
+        results[twitter_table] = len(twitter_df)
 
     retail_rows = _source_row_limit(sources["online_retail_ii"], default_rows, max_rows)
-    retail_df = load_online_retail(sources["online_retail_ii"], retail_rows)
-    _write_table_in_chunks(
-        retail_df,
-        project_id,
-        dataset,
-        sources["online_retail_ii"]["target_table"],
-        chunk_size=chunk_size,
-        partition_field="ingested_at",
-        clustering_fields=["invoice_no", "source"],
-    )
-    results["stg_online_retail"] = len(retail_df)
+    retail_table = sources["online_retail_ii"]["target_table"]
+    existing = table_row_count(project_id, dataset, retail_table)
+    if reuse_existing_stage and existing >= retail_rows:
+        results[retail_table] = existing
+    else:
+        retail_df = load_online_retail(sources["online_retail_ii"], retail_rows)
+        _write_table_in_chunks(
+            retail_df,
+            project_id,
+            dataset,
+            retail_table,
+            chunk_size=chunk_size,
+            partition_field="ingested_at",
+            clustering_fields=["invoice_no", "source"],
+        )
+        results[retail_table] = len(retail_df)
 
     telco_rows = _source_row_limit(sources["telco_churn"], default_rows, max_rows)
-    telco_df = load_telco_churn(sources["telco_churn"], telco_rows)
-    _write_table_in_chunks(
-        telco_df,
-        project_id,
-        dataset,
-        sources["telco_churn"]["target_table"],
-        chunk_size=chunk_size,
-        partition_field="ingested_at",
-        clustering_fields=["customer_id", "source"],
-    )
-    results["stg_telco_churn"] = len(telco_df)
+    telco_table = sources["telco_churn"]["target_table"]
+    existing = table_row_count(project_id, dataset, telco_table)
+    if reuse_existing_stage and existing >= telco_rows:
+        results[telco_table] = existing
+    else:
+        telco_df = load_telco_churn(sources["telco_churn"], telco_rows)
+        _write_table_in_chunks(
+            telco_df,
+            project_id,
+            dataset,
+            telco_table,
+            chunk_size=chunk_size,
+            partition_field="ingested_at",
+            clustering_fields=["customer_id", "source"],
+        )
+        results[telco_table] = len(telco_df)
 
     return results
 
