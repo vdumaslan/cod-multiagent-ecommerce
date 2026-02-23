@@ -47,8 +47,8 @@ SELECT
   ingested_at
 FROM `{PROJECT_ID}.{DATASET}.stg_twitter_support`
 WHERE ticket_id IS NOT NULL
-  AND ticket_text IS NOT NULL
-  AND TRIM(ticket_text) != '';
+  AND text IS NOT NULL
+  AND TRIM(text) != '';
 
 
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.retail_transactions`
@@ -84,4 +84,3 @@ SELECT
   ingested_at
 FROM `{PROJECT_ID}.{DATASET}.stg_telco_churn`
 WHERE customer_id IS NOT NULL;
-

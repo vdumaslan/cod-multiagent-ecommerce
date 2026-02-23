@@ -15,7 +15,6 @@ WITH review_agg AS (
 ),
 retail_price AS (
   SELECT
-    ANY_VALUE(stock_code) AS stock_code,
     APPROX_QUANTILES(unit_price, 2)[OFFSET(1)] AS retail_median_price
   FROM `{PROJECT_ID}.{DATASET}.retail_transactions`
   WHERE unit_price IS NOT NULL
@@ -126,4 +125,3 @@ SELECT
   created_at
 FROM base
 GROUP BY dataset_name, split, created_at;
-

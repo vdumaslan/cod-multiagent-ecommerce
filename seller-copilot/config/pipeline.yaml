@@ -24,28 +24,24 @@ pipeline:
 sources:
   amazon_reviews:
     kind: huggingface_reviews
-    dataset_id: McAuley-Lab/Amazon-Reviews-2023
-    subsets:
-      - raw_review_All_Beauty
-      - raw_review_Electronics
-      - raw_review_Books
-    split: full
+    dataset_id: amazon_polarity
+    split: train
     target_table: stg_amazon_reviews
 
   twitter_customer_support:
-    kind: csv_url
-    # This source can be replaced with your preferred mirror.
-    url: https://raw.githubusercontent.com/daeheepark/Twitter-Customer-Support/main/twcs.csv
+    kind: huggingface_text_classification
+    dataset_id: tweet_eval
+    subset: sentiment
+    split: train
     target_table: stg_twitter_support
 
   online_retail_ii:
-    kind: excel_url
-    url: https://archive.ics.uci.edu/ml/machine-learning-databases/00502/online_retail_II.xlsx
-    sheet_name: Year 2010-2011
+    kind: huggingface_tabular
+    dataset_id: attik/Online-Retail-II-UCI
+    split: train
     target_table: stg_online_retail
 
   telco_churn:
     kind: csv_url
     url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
     target_table: stg_telco_churn
-
