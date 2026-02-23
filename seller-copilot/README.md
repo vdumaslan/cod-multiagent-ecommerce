@@ -7,6 +7,7 @@ This folder is a clean restart and does not depend on existing repository code.
 - Run cloud-first with BigQuery + GitHub Actions + Jupyter workflows.
 - Use a debate architecture with 5 agents.
 - Use at least 4 distinct models.
+- CI note: any push touching `seller-copilot/` triggers the pipeline workflow.
 
 ## Build Order
 1. Lock constraints and metrics (`docs/01_constraints_and_success.md`).
