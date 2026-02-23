@@ -31,6 +31,8 @@ jobs:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'linear-theater-436300-r9' }}
       BIGQUERY_LOCATION: ${{ vars.BIGQUERY_LOCATION || 'US' }}
       BIGQUERY_DATASET: ${{ vars.BIGQUERY_DATASET || 'seller_copilot_prod' }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
 
     steps:
       - name: Checkout

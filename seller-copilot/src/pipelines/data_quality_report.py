@@ -25,6 +25,7 @@ def build_report(project_id: str, dataset: str) -> dict[str, int]:
     base = f"`{project_id}.{dataset}`"
     keys = [
         "stg_amazon_reviews",
+        "stg_amazon_meta",
         "stg_twitter_support",
         "stg_online_retail",
         "stg_telco_churn",
@@ -83,4 +84,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

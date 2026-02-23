@@ -68,10 +68,11 @@ def load_dataframe(
     table_name: str,
     partition_field: str | None = "ingested_at",
     clustering_fields: Iterable[str] | None = None,
+    write_disposition: str = "WRITE_TRUNCATE",
 ) -> None:
     client = get_client(project_id)
     table_id = f"{project_id}.{dataset_id}.{table_name}"
-    cfg = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+    cfg = bigquery.LoadJobConfig(write_disposition=write_disposition)
     if partition_field:
         cfg.time_partitioning = bigquery.TimePartitioning(
             type_=bigquery.TimePartitioningType.DAY,

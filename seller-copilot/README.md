@@ -30,6 +30,7 @@ python seller-copilot/src/pipelines/run_pipeline.py --config seller-copilot/conf
 Pipeline output:
 - BigQuery stage tables:
   - `stg_amazon_reviews`
+  - `stg_amazon_meta`
   - `stg_twitter_support`
   - `stg_online_retail`
   - `stg_telco_churn`
@@ -40,6 +41,10 @@ Pipeline output:
   - `pipeline_runs`
 - Local artifact:
   - `seller-copilot/artifacts/quality_report.json`
+
+Scale for model training:
+- Increase `pipeline.max_rows_per_source` and/or per-source `target_rows` in `seller-copilot/config/pipeline.yaml`.
+- For validation smoke tests, pass `--max-rows 5000` or `--max-rows 10000`.
 
 For local/manual runs only, set environment variables:
 ```bash
@@ -56,6 +61,7 @@ The pipeline is scheduled daily and can be triggered manually from:
 Configure repository settings:
 - `Secrets`:
   - `GCP_SA_KEY_JSON` = full service account JSON content
+  - `HF_TOKEN` (optional) = Hugging Face token for higher API rate limits on larger runs
 - `Variables` (optional; defaults already exist in workflow):
   - `GCP_PROJECT_ID` = `linear-theater-436300-r9`
   - `BIGQUERY_LOCATION` = `US`

@@ -4,7 +4,8 @@ project:
   dataset: seller_copilot_prod
 
 pipeline:
-  max_rows_per_source: 100000
+  max_rows_per_source: 120000
+  chunk_size: 20000
   random_seed: 42
   split:
     train: 0.8
@@ -13,35 +14,64 @@ pipeline:
   quality:
     fail_on_error: true
     min_rows:
-      stg_amazon_reviews: 1000
-      stg_twitter_support: 1000
-      stg_online_retail: 1000
-      stg_telco_churn: 1000
-      products: 500
-      reviews: 1000
-      product_features: 500
+      stg_amazon_reviews: 10000
+      stg_amazon_meta: 8000
+      stg_twitter_support: 8000
+      stg_online_retail: 10000
+      stg_telco_churn: 5000
+      products: 8000
+      reviews: 9000
+      product_features: 8000
 
 sources:
   amazon_reviews:
-    kind: huggingface_reviews
-    dataset_id: amazon_polarity
-    split: train
+    kind: huggingface_repo_jsonl
+    repo_id: McAuley-Lab/Amazon-Reviews-2023
+    file_paths:
+      - raw/review_categories/Electronics.jsonl
+      - raw/review_categories/Home_and_Kitchen.jsonl
+      - raw/review_categories/Cell_Phones_and_Accessories.jsonl
+      - raw/review_categories/Sports_and_Outdoors.jsonl
+      - raw/review_categories/Office_Products.jsonl
+      - raw/review_categories/Tools_and_Home_Improvement.jsonl
+    target_rows: 200000
     target_table: stg_amazon_reviews
 
+  amazon_meta:
+    kind: huggingface_repo_jsonl
+    repo_id: McAuley-Lab/Amazon-Reviews-2023
+    file_paths:
+      - raw/meta_categories/meta_Electronics.jsonl
+      - raw/meta_categories/meta_Home_and_Kitchen.jsonl
+      - raw/meta_categories/meta_Cell_Phones_and_Accessories.jsonl
+      - raw/meta_categories/meta_Sports_and_Outdoors.jsonl
+      - raw/meta_categories/meta_Office_Products.jsonl
+      - raw/meta_categories/meta_Tools_and_Home_Improvement.jsonl
+    target_rows: 120000
+    target_table: stg_amazon_meta
+
   twitter_customer_support:
-    kind: huggingface_text_classification
-    dataset_id: tweet_eval
-    subset: sentiment
-    split: train
+    kind: multi_huggingface_text
+    target_rows: 120000
+    datasets:
+      - dataset_id: tweet_eval
+        subset: sentiment
+        split: train
+      - dataset_id: yelp_review_full
+        split: train
+      - dataset_id: imdb
+        split: train
     target_table: stg_twitter_support
 
   online_retail_ii:
     kind: huggingface_tabular
     dataset_id: attik/Online-Retail-II-UCI
     split: train
+    target_rows: 120000
     target_table: stg_online_retail
 
   telco_churn:
     kind: csv_url
     url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+    target_rows: 7000
     target_table: stg_telco_churn

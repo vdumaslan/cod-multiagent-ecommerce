@@ -4,16 +4,38 @@
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.products`
 PARTITION BY DATE(ingested_at)
 CLUSTER BY product_id AS
+WITH review_agg AS (
+  SELECT
+    product_id,
+    ANY_VALUE(NULLIF(review_title, "")) AS review_title,
+    ANY_VALUE(NULLIF(review_text, "")) AS review_description,
+    AVG(rating) AS avg_rating,
+    APPROX_QUANTILES(price, 2)[OFFSET(1)] AS review_median_price,
+    MAX(ingested_at) AS review_ingested_at
+  FROM `{PROJECT_ID}.{DATASET}.stg_amazon_reviews`
+  WHERE product_id IS NOT NULL AND product_id != ''
+  GROUP BY product_id
+),
+meta_agg AS (
+  SELECT
+    product_id,
+    ANY_VALUE(NULLIF(title, "")) AS meta_title,
+    ANY_VALUE(NULLIF(description, "")) AS meta_description,
+    APPROX_QUANTILES(price, 2)[OFFSET(1)] AS meta_median_price,
+    MAX(ingested_at) AS meta_ingested_at
+  FROM `{PROJECT_ID}.{DATASET}.stg_amazon_meta`
+  WHERE product_id IS NOT NULL AND product_id != ''
+  GROUP BY product_id
+)
 SELECT
-  product_id,
-  ANY_VALUE(NULLIF(review_title, "")) AS title,
-  ANY_VALUE(NULLIF(review_text, "")) AS description,
-  AVG(rating) AS avg_rating,
-  APPROX_QUANTILES(price, 2)[OFFSET(1)] AS median_price,
-  MAX(ingested_at) AS ingested_at
-FROM `{PROJECT_ID}.{DATASET}.stg_amazon_reviews`
-WHERE product_id IS NOT NULL AND product_id != ''
-GROUP BY product_id;
+  COALESCE(r.product_id, m.product_id) AS product_id,
+  COALESCE(m.meta_title, r.review_title) AS title,
+  COALESCE(m.meta_description, r.review_description) AS description,
+  COALESCE(r.avg_rating, 0.0) AS avg_rating,
+  COALESCE(r.review_median_price, m.meta_median_price) AS median_price,
+  GREATEST(COALESCE(r.review_ingested_at, TIMESTAMP("1970-01-01")), COALESCE(m.meta_ingested_at, TIMESTAMP("1970-01-01"))) AS ingested_at
+FROM review_agg r
+FULL OUTER JOIN meta_agg m USING (product_id);
 
 
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.reviews`
