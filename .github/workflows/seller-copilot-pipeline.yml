@@ -1,0 +1,75 @@
+name: Seller Copilot Data Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/seller-copilot-pipeline.yml"
+      - "seller-copilot/**"
+  workflow_dispatch:
+    inputs:
+      max_rows:
+        description: "Optional max rows per source for a smaller run"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 13 * * *"
+
+concurrency:
+  group: seller-copilot-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'linear-theater-436300-r9' }}
+      BIGQUERY_LOCATION: ${{ vars.BIGQUERY_LOCATION || 'US' }}
+      BIGQUERY_DATASET: ${{ vars.BIGQUERY_DATASET || 'seller_copilot_prod' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: seller-copilot/requirements.txt
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_JSON }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r seller-copilot/requirements.txt
+
+      - name: Run data pipeline
+        shell: bash
+        run: |
+          MAX_ROWS="${{ github.event.inputs.max_rows }}"
+          if [ -n "$MAX_ROWS" ]; then
+            python seller-copilot/src/pipelines/run_pipeline.py \
+              --config seller-copilot/config/pipeline.yaml \
+              --max-rows "$MAX_ROWS"
+          else
+            python seller-copilot/src/pipelines/run_pipeline.py \
+              --config seller-copilot/config/pipeline.yaml
+          fi
+
+      - name: Upload quality report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: seller-copilot/artifacts/quality_report.json
+          if-no-files-found: warn

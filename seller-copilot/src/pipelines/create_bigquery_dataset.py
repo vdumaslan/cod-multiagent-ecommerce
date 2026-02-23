@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
-from google.cloud import bigquery
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-
-def ensure_dataset(project_id: str, dataset_id: str, location: str) -> None:
-    client = bigquery.Client(project=project_id)
-    full_id = f"{project_id}.{dataset_id}"
-    dataset = bigquery.Dataset(full_id)
-    dataset.location = location
-    client.create_dataset(dataset, exists_ok=True)
-    print(f"Dataset ready: {full_id} ({location})")
+from bq_utils import ensure_dataset, ensure_pipeline_runs_table
 
 
 def main() -> None:
@@ -20,7 +17,10 @@ def main() -> None:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--location", default="US")
     args = parser.parse_args()
+
     ensure_dataset(args.project_id, args.dataset, args.location)
+    ensure_pipeline_runs_table(args.project_id, args.dataset)
+    print(f"Dataset and admin tables ready: {args.project_id}.{args.dataset}")
 
 
 if __name__ == "__main__":

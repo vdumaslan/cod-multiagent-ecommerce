@@ -1,0 +1,51 @@
+project:
+  project_id: linear-theater-436300-r9
+  location: US
+  dataset: seller_copilot_prod
+
+pipeline:
+  max_rows_per_source: 100000
+  random_seed: 42
+  split:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+  quality:
+    fail_on_error: true
+    min_rows:
+      stg_amazon_reviews: 1000
+      stg_twitter_support: 1000
+      stg_online_retail: 1000
+      stg_telco_churn: 1000
+      products: 500
+      reviews: 1000
+      product_features: 500
+
+sources:
+  amazon_reviews:
+    kind: huggingface_reviews
+    dataset_id: McAuley-Lab/Amazon-Reviews-2023
+    subsets:
+      - raw_review_All_Beauty
+      - raw_review_Electronics
+      - raw_review_Books
+    split: full
+    target_table: stg_amazon_reviews
+
+  twitter_customer_support:
+    kind: csv_url
+    # This source can be replaced with your preferred mirror.
+    url: https://raw.githubusercontent.com/daeheepark/Twitter-Customer-Support/main/twcs.csv
+    target_table: stg_twitter_support
+
+  online_retail_ii:
+    kind: excel_url
+    url: https://archive.ics.uci.edu/ml/machine-learning-databases/00502/online_retail_II.xlsx
+    sheet_name: Year 2010-2011
+    target_table: stg_online_retail
+
+  telco_churn:
+    kind: csv_url
+    url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+    target_table: stg_telco_churn
+

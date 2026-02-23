@@ -1,0 +1,17 @@
+name: seller-copilot
+prefect-version: "3.0.0"
+
+deployments:
+  - name: seller-copilot-daily
+    tags:
+      - seller-copilot
+      - data-pipeline
+    description: Daily cloud run for seller copilot pipeline.
+    entrypoint: seller-copilot/src/pipelines/prefect_flow.py:seller_copilot_pipeline
+    parameters:
+      config_path: seller-copilot/config/pipeline.yaml
+      max_rows: null
+    schedules:
+      - cron: "0 2 * * *"
+        timezone: "America/Los_Angeles"
+        active: true
