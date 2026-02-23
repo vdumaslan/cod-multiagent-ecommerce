@@ -1,0 +1,17 @@
+orchestrator:
+  primary: Qwen/Qwen2.5-7B-Instruct
+  fallback: meta-llama/Llama-3.1-8B-Instruct
+
+embeddings:
+  primary: BAAI/bge-large-en-v1.5
+  fallback: sentence-transformers/all-MiniLM-L6-v2
+
+reranker:
+  primary: BAAI/bge-reranker-v2-m3
+
+sentiment:
+  primary: cardiffnlp/twitter-roberta-base-sentiment-latest
+
+pricing:
+  primary: FT-Transformer
+  notes: Tabular deep model for price fairness and value score

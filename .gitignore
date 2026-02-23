@@ -14,5 +14,7 @@ __pycache__/
 # Ignore large local data files
 *.csv
 *.parquet
+seller-copilot/artifacts/
+
 
 
