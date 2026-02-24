@@ -17,10 +17,19 @@ This directory contains the seller copilot implementation for the project.
 4. Train/evaluate models, including pricing FT-Transformer (`src/training/`).
 5. Wire agent debate flow (`src/agents/`).
 6. Launch web app (`src/app/streamlit_app.py`).
+7. Generate demo/workbook results pack (`src/training/generate_evaluation_reports.py`).
 
 ## Quickstart
 ```bash
 pip install -r seller-copilot/requirements.txt
+```
+
+Windows runtime note:
+- Use the project virtual environment for all commands:
+```bash
+py -3.13 -m venv .venv
+.\.venv\Scripts\python -m pip install -r seller-copilot/requirements.txt
+.\.venv\Scripts\python seller-copilot/src/training/generate_evaluation_reports.py
 ```
 
 Run pipeline once (idempotent rerun-safe):
@@ -77,8 +86,23 @@ Run app:
 streamlit run seller-copilot/src/app/streamlit_app.py
 ```
 
+Generate reporting artifacts for demo/workbook:
+```bash
+python seller-copilot/src/training/generate_evaluation_reports.py
+```
+
+Reporting outputs:
+- `seller-copilot/artifacts/reports/performance_results.json`
+- `seller-copilot/artifacts/reports/ongoing_ml_results.json`
+- `seller-copilot/artifacts/reports/data_analytics_findings.json`
+- `seller-copilot/artifacts/reports/figures/*.png`
+- `seller-copilot/artifacts/reports/llm_sentiment_comparison.json`
+- `seller-copilot/artifacts/reports/comparisons/llm_sentiment_model_comparison.csv`
+- `seller-copilot/artifacts/reports/historical_llm_model.json`
+- `seller-copilot/artifacts/reports/samples/*.csv`
+
 LLM runtime notes:
 - Agent LLM IDs are configured in `seller-copilot/config/models.yaml`.
-- The app uses Hugging Face Inference API when `HF_TOKEN` is set.
+- The app uses Hugging Face Inference API and requires `HF_TOKEN`.
 - If an LLM endpoint is unavailable, agents fall back to deterministic claims based on model evidence.
 

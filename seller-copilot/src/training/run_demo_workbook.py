@@ -32,6 +32,7 @@ def main() -> None:
     embed = root / "build_embeddings.py"
     analytics = root / "analyze_data.py"
     evaluate = root / "evaluate.py"
+    reporting = root / "generate_evaluation_reports.py"
 
     py = sys.executable
     data_dir = Path(args.output_dir) / "data"
@@ -99,6 +100,7 @@ def main() -> None:
         ]
     )
     _run([py, str(evaluate), "--ranking-test-parquet", str(data_dir / "ranking_test.parquet")])
+    _run([py, str(reporting), "--artifacts-root", str(args.output_dir), "--output-dir", str(Path(args.output_dir) / "reports")])
 
     print("Demo/workbook artifact generation completed.")
 

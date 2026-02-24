@@ -5,8 +5,8 @@ Date: 2026-02-22
 ## Final Model Set (Free/Open)
 
 1. Orchestrator / Debate Synthesis  
-- Model: `Qwen/Qwen2.5-7B-Instruct`  
-- Why: strong open instruct model quality for structured synthesis and conflict resolution.
+- Model: `microsoft/Phi-3.5-mini-instruct`  
+- Why: lightweight instruct LLM for fast aggregation and final seller-facing synthesis.
 
 2. Discovery Debate Reasoning  
 - Model: `mistralai/Mistral-7B-Instruct-v0.3`  
@@ -25,8 +25,8 @@ Date: 2026-02-22
 - Why: robust sentiment reference model for short-form and support-style text.
 
 6. Sentiment Debate Reasoning  
-- Model: `microsoft/Phi-3.5-mini-instruct`  
-- Why: compact instruct LLM for evidence-to-claim synthesis.
+- Model: `google/gemma-2-9b-it`  
+- Why: stronger text understanding for nuanced sentiment evidence-to-claim synthesis.
 
 7. Ranking Debate Reasoning  
 - Model: `meta-llama/Llama-3.1-8B-Instruct`  
@@ -37,8 +37,8 @@ Date: 2026-02-22
 - Why: modern deep tabular model suited to pricing features (price bands, category context, rating aggregates, sentiment-derived features) and stronger than simple linear/rule reference models for nonlinear feature interactions.
 
 9. Pricing Debate Reasoning  
-- Model: `google/gemma-2-9b-it`  
-- Why: high quality instruction model for concise value/risk narratives.
+- Model: `Qwen/Qwen2.5-7B-Instruct`  
+- Why: strong numerical and structured reasoning for value/risk narratives.
 
 Fallback options:
 - LLM fallback: `HuggingFaceH4/zephyr-7b-beta` and `Qwen/Qwen2.5-3B-Instruct`
