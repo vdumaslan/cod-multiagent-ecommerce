@@ -1,0 +1,48 @@
+{
+  "project_id": "linear-theater-436300-r9",
+  "dataset": "seller_copilot_prod",
+  "table_row_counts": [
+    {
+      "table_name": "retrieval_corpus",
+      "row_count": 152390
+    },
+    {
+      "table_name": "support_tickets",
+      "row_count": 100000
+    },
+    {
+      "table_name": "reviews",
+      "row_count": 99979
+    },
+    {
+      "table_name": "ranking_pairs",
+      "row_count": 609560
+    },
+    {
+      "table_name": "pricing_features",
+      "row_count": 152390
+    },
+    {
+      "table_name": "sentiment_dataset",
+      "row_count": 99979
+    },
+    {
+      "table_name": "product_features",
+      "row_count": 152390
+    },
+    {
+      "table_name": "products",
+      "row_count": 152390
+    }
+  ],
+  "review_stats": {
+    "avg_rating": 4.2562,
+    "positive_reviews": 80545.0,
+    "total_reviews": 99979.0
+  },
+  "pricing_stats": {
+    "avg_price": 25.8709,
+    "median_price": 2.55,
+    "max_price": 12999.0
+  }
+}

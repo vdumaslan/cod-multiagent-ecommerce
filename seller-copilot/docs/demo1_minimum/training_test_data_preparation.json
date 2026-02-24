@@ -1,0 +1,41 @@
+{
+  "project_id": "linear-theater-436300-r9",
+  "dataset": "seller_copilot_prod",
+  "sentiment_rows": 80000,
+  "ranking_rows": 200000,
+  "pricing_rows": 120000,
+  "retrieval_rows": 152390,
+  "splits": {
+    "sentiment": {
+      "train": 63707,
+      "val": 8125,
+      "test": 8168
+    },
+    "ranking": {
+      "train": 160050,
+      "val": 19865,
+      "test": 20085
+    },
+    "pricing": {
+      "train": 95928,
+      "val": 11993,
+      "test": 12079
+    }
+  },
+  "label_distribution": {
+    "sentiment": {
+      "2": 64487,
+      "0": 9889,
+      "1": 5624
+    },
+    "ranking": {
+      "0": 134772,
+      "1": 65228
+    }
+  },
+  "missing_values": {
+    "sentiment_text_nulls": 0,
+    "ranking_doc_nulls": 0,
+    "pricing_target_nulls": 0
+  }
+}

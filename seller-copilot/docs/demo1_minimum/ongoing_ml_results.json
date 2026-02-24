@@ -1,0 +1,28 @@
+{
+  "sentiment": {
+    "model": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "num_eval_rows": 8000,
+    "accuracy": 0.782375,
+    "macro_f1": 0.5721549811470471,
+    "weighted_f1": 0.8119314416808839
+  },
+  "ranking_baseline": {
+    "model": "HashingVectorizer + SGDClassifier (fast baseline)",
+    "num_train_pairs": 15000,
+    "num_eval_pairs": 4000,
+    "pairwise_accuracy": 0.82475,
+    "ndcg@10": 0.9110556970776884,
+    "mrr@10": 0.875,
+    "recall@10": 1.0,
+    "precision@10": 0.9249999999999999
+  },
+  "pricing_baseline": {
+    "model": "HistGradientBoostingRegressor (fast baseline)",
+    "num_train_rows": 60000,
+    "num_eval_rows": 10000,
+    "mae": 0.008949947851833378,
+    "rmse": 0.051252087177132144,
+    "r2": 0.9994301607580742,
+    "mape": 0.15448157191608303
+  }
+}
