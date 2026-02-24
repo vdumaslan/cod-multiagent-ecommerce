@@ -62,6 +62,8 @@ sources:
         split: train
       - dataset_id: imdb
         split: train
+      - dataset_id: ag_news
+        split: train
     target_table: stg_twitter_support
 
   online_retail_ii:

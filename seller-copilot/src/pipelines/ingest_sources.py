@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from typing import Any
 
 import pandas as pd
+import requests
 from datasets import load_dataset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -62,13 +64,22 @@ def _read_hf_stream_rows(
 
 
 def _read_hf_repo_jsonl_rows(repo_id: str, file_paths: list[str], max_rows: int) -> list[dict[str, Any]]:
-    data_files = [f"https://huggingface.co/datasets/{repo_id}/resolve/main/{path}" for path in file_paths]
-    stream = load_dataset("json", data_files=data_files, split="train", streaming=True)
     rows: list[dict[str, Any]] = []
-    for i, row in enumerate(stream):
-        if i >= max_rows:
+    for path in file_paths:
+        if len(rows) >= max_rows:
             break
-        rows.append(dict(row))
+        url = f"https://huggingface.co/datasets/{repo_id}/resolve/main/{path}"
+        with requests.get(url, stream=True, timeout=120) as response:
+            response.raise_for_status()
+            for line in response.iter_lines(decode_unicode=True):
+                if len(rows) >= max_rows:
+                    break
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
     return rows
 
 
