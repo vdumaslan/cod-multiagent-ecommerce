@@ -7,6 +7,7 @@ This directory contains the seller copilot implementation for the project.
 - Run cloud-first with BigQuery + GitHub Actions + Jupyter workflows.
 - Use a debate architecture with 5 agents.
 - Use at least 4 distinct models.
+- Use distinct LLMs for Discovery, Sentiment, Ranking, Pricing, and Orchestrator synthesis.
 - CI note: any push touching `seller-copilot/` triggers the pipeline workflow.
 
 ## Build Order
@@ -75,4 +76,9 @@ Run app:
 ```bash
 streamlit run seller-copilot/src/app/streamlit_app.py
 ```
+
+LLM runtime notes:
+- Agent LLM IDs are configured in `seller-copilot/config/models.yaml`.
+- The app uses Hugging Face Inference API when `HF_TOKEN` is set.
+- If an LLM endpoint is unavailable, agents fall back to deterministic claims based on model evidence.
 

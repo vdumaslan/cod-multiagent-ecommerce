@@ -8,24 +8,40 @@ Date: 2026-02-22
 - Model: `Qwen/Qwen2.5-7B-Instruct`  
 - Why: strong open instruct model quality for structured synthesis and conflict resolution.
 
-2. Retrieval Embeddings  
+2. Discovery Debate Reasoning  
+- Model: `mistralai/Mistral-7B-Instruct-v0.3`  
+- Why: strong instruction-following quality for concise retrieval-grounded claims.
+
+3. Retrieval Embeddings  
 - Model: `BAAI/bge-large-en-v1.5`  
 - Why: high retrieval quality for semantic search.
 
-3. Candidate Reranking  
+4. Candidate Reranking  
 - Model: `BAAI/bge-reranker-v2-m3`  
 - Why: strong reranking performance for query-product matching.
 
-4. Sentiment / User Voice  
+5. Sentiment / User Voice  
 - Model: `cardiffnlp/twitter-roberta-base-sentiment-latest`  
 - Why: robust sentiment reference model for short-form and support-style text.
 
-5. Pricing / Value  
+6. Sentiment Debate Reasoning  
+- Model: `microsoft/Phi-3.5-mini-instruct`  
+- Why: compact instruct LLM for evidence-to-claim synthesis.
+
+7. Ranking Debate Reasoning  
+- Model: `meta-llama/Llama-3.1-8B-Instruct`  
+- Why: strong zero-shot reasoning for pairwise and listwise recommendation arguments.
+
+8. Pricing / Value  
 - Model: `FT-Transformer`  
 - Why: modern deep tabular model suited to pricing features (price bands, category context, rating aggregates, sentiment-derived features) and stronger than simple linear/rule reference models for nonlinear feature interactions.
 
+9. Pricing Debate Reasoning  
+- Model: `google/gemma-2-9b-it`  
+- Why: high quality instruction model for concise value/risk narratives.
+
 Fallback options:
-- LLM fallback: `meta-llama/Llama-3.1-8B-Instruct`
+- LLM fallback: `HuggingFaceH4/zephyr-7b-beta` and `Qwen/Qwen2.5-3B-Instruct`
 - Embedding fallback: `sentence-transformers/all-MiniLM-L6-v2`
 
 ## Dataset Mapping
