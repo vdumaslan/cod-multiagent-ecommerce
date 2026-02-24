@@ -5,61 +5,82 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from sklearn.metrics import classification_report
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+
+
+def _label_from_model_output(label: str) -> int:
+    t = label.lower()
+    if "negative" in t:
+        return 0
+    if "neutral" in t:
+        return 1
+    return 2
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-parquet", required=True)
-    parser.add_argument("--text-col", default="review_text")
-    parser.add_argument("--label-col", default="rating")
-    parser.add_argument(
-        "--model-id", default="cardiffnlp/twitter-roberta-base-sentiment-latest"
-    )
+    parser.add_argument("--test-parquet", default="seller-copilot/artifacts/data/sentiment_test.parquet")
+    parser.add_argument("--text-col", default="text")
+    parser.add_argument("--label-col", default="label")
+    parser.add_argument("--model-id", default="cardiffnlp/twitter-roberta-base-sentiment-latest")
+    parser.add_argument("--max-eval-rows", type=int, default=20000)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--output-dir", default="seller-copilot/artifacts/sentiment")
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_parquet(args.input_parquet)
-    df = df.dropna(subset=[args.text_col, args.label_col]).copy()
-    if df.empty:
-        raise RuntimeError("No rows available after dropna.")
+    test_df = pd.read_parquet(args.test_parquet).dropna(subset=[args.text_col, args.label_col]).copy()
+    if test_df.empty:
+        raise RuntimeError("No evaluation rows found in sentiment_test parquet.")
+    if args.max_eval_rows and len(test_df) > args.max_eval_rows:
+        test_df = test_df.sample(args.max_eval_rows, random_state=42).reset_index(drop=True)
 
-    # Simple 3-way target from rating for baseline evaluation.
-    def to_label(r: float) -> int:
-        if r >= 4:
-            return 2
-        if r == 3:
-            return 1
-        return 0
+    device = args.device
+    device_id = -1
+    if device == "auto":
+        try:
+            import torch
 
-    df["y"] = df[args.label_col].astype(float).map(to_label)
-    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["y"])
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+    if device == "cuda":
+        device_id = 0
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
     model = AutoModelForSequenceClassification.from_pretrained(args.model_id)
-    clf = pipeline("text-classification", model=model, tokenizer=tokenizer)
+    clf = pipeline(
+        "text-classification",
+        model=model,
+        tokenizer=tokenizer,
+        truncation=True,
+        max_length=256,
+        batch_size=args.batch_size,
+        device=device_id,
+    )
 
-    preds = []
-    for text in test_df[args.text_col].astype(str).tolist():
-        p = clf(text[:512])[0]["label"].lower()
-        if "negative" in p:
-            preds.append(0)
-        elif "neutral" in p:
-            preds.append(1)
-        else:
-            preds.append(2)
+    preds = clf(test_df[args.text_col].astype(str).tolist())
+    y_pred = [_label_from_model_output(p["label"]) for p in preds]
+    y_true = test_df[args.label_col].astype(int).tolist()
 
-    report = classification_report(test_df["y"], preds, output_dict=True)
-    (out_dir / "classification_report.json").write_text(json.dumps(report, indent=2))
+    report = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1, 2]).tolist()
+
+    payload = {
+        "model_id": args.model_id,
+        "device": device,
+        "num_eval_rows": int(len(test_df)),
+        "metrics": report,
+        "confusion_matrix_labels": [0, 1, 2],
+        "confusion_matrix": cm,
+    }
+    (out_dir / "classification_report.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"Saved: {out_dir / 'classification_report.json'}")
 
 
 if __name__ == "__main__":
     main()
-
-

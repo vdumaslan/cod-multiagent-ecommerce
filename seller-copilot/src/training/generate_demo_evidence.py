@@ -117,15 +117,15 @@ def main() -> None:
             "macro_f1": sentiment.get("metrics", {}).get("macro avg", {}).get("f1-score"),
             "weighted_f1": sentiment.get("metrics", {}).get("weighted avg", {}).get("f1-score"),
         },
-        "ranking_baseline": {
-            "model": "HashingVectorizer + SGDClassifier baseline",
+        "ranking_reference": {
+            "model": "HashingVectorizer + SGDClassifier reference",
             "num_train_pairs": int(len(ranking_train)),
             "num_eval_pairs": int(len(ranking_eval)),
             "pairwise_accuracy": pairwise_acc,
             **ranking_metrics,
         },
-        "pricing_baseline": {
-            "model": "HistGradientBoostingRegressor baseline",
+        "pricing_reference": {
+            "model": "HistGradientBoostingRegressor reference",
             "num_train_rows": int(len(pricing_train)),
             "num_eval_rows": int(len(pricing_test)),
             **pricing_metrics,
@@ -144,10 +144,10 @@ def main() -> None:
 
 ## Headline Metrics
 - Sentiment macro F1: `{ongoing_ml['sentiment']['macro_f1']:.4f}`
-- Ranking nDCG@10: `{ongoing_ml['ranking_baseline']['ndcg@10']:.4f}`
-- Ranking MRR@10: `{ongoing_ml['ranking_baseline']['mrr@10']:.4f}`
-- Pricing MAE: `{ongoing_ml['pricing_baseline']['mae']:.4f}`
-- Pricing RMSE: `{ongoing_ml['pricing_baseline']['rmse']:.4f}`
+- Ranking nDCG@10: `{ongoing_ml['ranking_reference']['ndcg@10']:.4f}`
+- Ranking MRR@10: `{ongoing_ml['ranking_reference']['mrr@10']:.4f}`
+- Pricing MAE: `{ongoing_ml['pricing_reference']['mae']:.4f}`
+- Pricing RMSE: `{ongoing_ml['pricing_reference']['rmse']:.4f}`
 """
     (out_dir / "demo1_summary.md").write_text(summary_md, encoding="utf-8")
     print(f"Saved evidence pack to {out_dir}")

@@ -33,7 +33,7 @@ if run:
         candidates_df = discovery.retrieve(query, top_k=10)
         candidate_ids = candidates_df["product_id"].astype(str).tolist()
     except Exception as exc:
-        st.warning(f"Discovery artifacts not ready yet: {exc}")
+        st.warning(f"Discovery artifacts are unavailable: {exc}")
         candidate_ids = ["candidate_A", "candidate_B", "candidate_C"]
 
     sentiment = SentimentAgent().run(candidate_ids)
@@ -49,6 +49,13 @@ if run:
         st.write(f"Runner-up: `{result.runner_up}`")
         st.write(f"Uncertainty: `{result.uncertainty}`")
         st.write(result.rationale)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Approve Recommendation"):
+                st.success("Decision captured: APPROVE (human-in-the-loop).")
+        with c2:
+            if st.button("Reject Recommendation"):
+                st.error("Decision captured: REJECT (human-in-the-loop).")
     with col2:
         st.subheader("Debate Traces")
         for trace in result.traces:

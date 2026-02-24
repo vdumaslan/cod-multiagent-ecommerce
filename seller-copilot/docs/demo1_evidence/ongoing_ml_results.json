@@ -6,8 +6,8 @@
     "macro_f1": 0.5721549811470471,
     "weighted_f1": 0.8119314416808839
   },
-  "ranking_baseline": {
-    "model": "HashingVectorizer + SGDClassifier baseline",
+  "ranking_reference": {
+    "model": "HashingVectorizer + SGDClassifier reference",
     "num_train_pairs": 15000,
     "num_eval_pairs": 4000,
     "pairwise_accuracy": 0.82475,
@@ -16,8 +16,8 @@
     "recall@10": 1.0,
     "precision@10": 0.9249999999999999
   },
-  "pricing_baseline": {
-    "model": "HistGradientBoostingRegressor baseline",
+  "pricing_reference": {
+    "model": "HistGradientBoostingRegressor reference",
     "num_train_rows": 60000,
     "num_eval_rows": 10000,
     "mae": 0.008949947851833378,

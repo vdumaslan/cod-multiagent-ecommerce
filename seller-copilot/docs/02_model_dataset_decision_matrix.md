@@ -18,11 +18,11 @@ Date: 2026-02-22
 
 4. Sentiment / User Voice  
 - Model: `cardiffnlp/twitter-roberta-base-sentiment-latest`  
-- Why: robust sentiment baseline for short-form and support-style text.
+- Why: robust sentiment reference model for short-form and support-style text.
 
 5. Pricing / Value  
 - Model: `FT-Transformer`  
-- Why: modern deep tabular model suited to pricing features (price bands, category context, rating aggregates, sentiment-derived features) and stronger than simple linear/rule baselines for nonlinear feature interactions.
+- Why: modern deep tabular model suited to pricing features (price bands, category context, rating aggregates, sentiment-derived features) and stronger than simple linear/rule reference models for nonlinear feature interactions.
 
 Fallback options:
 - LLM fallback: `meta-llama/Llama-3.1-8B-Instruct`
