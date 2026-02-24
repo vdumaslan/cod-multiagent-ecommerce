@@ -1,5 +1,5 @@
 -- Feature tables for model-ready datasets.
--- Runtime placeholders: {PROJECT_ID}, {DATASET}, {TRAIN_RATIO}, {VAL_RATIO}, {SEED}
+-- Runtime parameters: {PROJECT_ID}, {DATASET}, {TRAIN_RATIO}, {VAL_RATIO}, {SEED}
 
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.product_features`
 PARTITION BY DATE(ingested_at)
@@ -56,24 +56,55 @@ WHERE rating IS NOT NULL
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.ranking_pairs`
 PARTITION BY DATE(ingested_at)
 CLUSTER BY product_id AS
-WITH q AS (
+WITH bounds AS (
   SELECT
-    product_id,
-    CONCAT("Find best value product like ", COALESCE(title, "this item")) AS query_text,
-    positive_ratio,
-    review_avg_rating,
-    ingested_at
+    APPROX_QUANTILES(price, 10)[OFFSET(3)] AS p30,
+    APPROX_QUANTILES(price, 10)[OFFSET(7)] AS p70,
+    APPROX_QUANTILES(SAFE_DIVIDE(avg_rating, NULLIF(price, 0)), 10)[OFFSET(5)] AS median_value_score
   FROM `{PROJECT_ID}.{DATASET}.product_features`
+  WHERE price IS NOT NULL AND price > 0
+),
+base AS (
+  SELECT
+    pf.product_id,
+    pf.price,
+    pf.avg_rating,
+    pf.positive_ratio,
+    SAFE_DIVIDE(pf.avg_rating, NULLIF(pf.price, 0)) AS value_score,
+    pf.ingested_at,
+    b.p30,
+    b.p70,
+    b.median_value_score
+  FROM `{PROJECT_ID}.{DATASET}.product_features` pf
+  CROSS JOIN bounds b
 )
 SELECT
-  query_text,
+  "best budget products" AS query_text,
   product_id,
-  CASE
-    WHEN positive_ratio >= 0.7 AND review_avg_rating >= 4.0 THEN 1
-    ELSE 0
-  END AS relevance_label,
+  CASE WHEN price <= p30 AND avg_rating >= 4.0 AND positive_ratio >= 0.60 THEN 1 ELSE 0 END AS relevance_label,
   ingested_at
-FROM q;
+FROM base
+UNION ALL
+SELECT
+  "top rated products" AS query_text,
+  product_id,
+  CASE WHEN avg_rating >= 4.40 AND positive_ratio >= 0.75 THEN 1 ELSE 0 END AS relevance_label,
+  ingested_at
+FROM base
+UNION ALL
+SELECT
+  "value for money products" AS query_text,
+  product_id,
+  CASE WHEN value_score >= median_value_score AND avg_rating >= 4.0 THEN 1 ELSE 0 END AS relevance_label,
+  ingested_at
+FROM base
+UNION ALL
+SELECT
+  "premium quality products" AS query_text,
+  product_id,
+  CASE WHEN price >= p70 AND avg_rating >= 4.3 AND positive_ratio >= 0.70 THEN 1 ELSE 0 END AS relevance_label,
+  ingested_at
+FROM base;
 
 
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.pricing_features`

@@ -7,7 +7,7 @@
     "weighted_f1": 0.8119314416808839
   },
   "ranking_baseline": {
-    "model": "HashingVectorizer + SGDClassifier (fast baseline)",
+    "model": "HashingVectorizer + SGDClassifier baseline",
     "num_train_pairs": 15000,
     "num_eval_pairs": 4000,
     "pairwise_accuracy": 0.82475,
@@ -17,7 +17,7 @@
     "precision@10": 0.9249999999999999
   },
   "pricing_baseline": {
-    "model": "HistGradientBoostingRegressor (fast baseline)",
+    "model": "HistGradientBoostingRegressor baseline",
     "num_train_rows": 60000,
     "num_eval_rows": 10000,
     "mae": 0.008949947851833378,

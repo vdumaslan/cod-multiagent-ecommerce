@@ -1,2 +1,1 @@
-# Training package.
-
+"""Training package."""

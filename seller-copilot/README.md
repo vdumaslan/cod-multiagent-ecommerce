@@ -1,6 +1,6 @@
 # CoD Multi-Agent E-Commerce (Seller Copilot)
 
-This folder is a clean restart and does not depend on existing repository code.
+This directory contains the seller copilot implementation for the project.
 
 ## Goals
 - Keep the entire project free (no paid APIs/subscriptions).

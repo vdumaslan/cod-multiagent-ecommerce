@@ -1,5 +1,5 @@
 -- Canonical tables for seller copilot.
--- Replaced placeholders at runtime: {PROJECT_ID}, {DATASET}
+-- Runtime parameters: {PROJECT_ID}, {DATASET}
 
 CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.products`
 PARTITION BY DATE(ingested_at)

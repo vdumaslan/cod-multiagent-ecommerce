@@ -49,7 +49,7 @@ def _ranking_metrics(df: pd.DataFrame, score_col: str, k: int = 10) -> dict[str,
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts-root", default="seller-copilot/artifacts")
-    parser.add_argument("--output-dir", default="seller-copilot/artifacts/demo1_minimum")
+    parser.add_argument("--output-dir", default="seller-copilot/artifacts/demo1_evidence")
     parser.add_argument("--ranking-train-max", type=int, default=20000)
     parser.add_argument("--ranking-test-max", type=int, default=5000)
     parser.add_argument("--pricing-train-max", type=int, default=80000)
@@ -118,14 +118,14 @@ def main() -> None:
             "weighted_f1": sentiment.get("metrics", {}).get("weighted avg", {}).get("f1-score"),
         },
         "ranking_baseline": {
-            "model": "HashingVectorizer + SGDClassifier (fast baseline)",
+            "model": "HashingVectorizer + SGDClassifier baseline",
             "num_train_pairs": int(len(ranking_train)),
             "num_eval_pairs": int(len(ranking_eval)),
             "pairwise_accuracy": pairwise_acc,
             **ranking_metrics,
         },
         "pricing_baseline": {
-            "model": "HistGradientBoostingRegressor (fast baseline)",
+            "model": "HistGradientBoostingRegressor baseline",
             "num_train_rows": int(len(pricing_train)),
             "num_eval_rows": int(len(pricing_test)),
             **pricing_metrics,
@@ -136,7 +136,7 @@ def main() -> None:
     (out_dir / "data_analytics_results.json").write_text(json.dumps(data_analytics, indent=2), encoding="utf-8")
     (out_dir / "ongoing_ml_results.json").write_text(json.dumps(ongoing_ml, indent=2), encoding="utf-8")
 
-    summary_md = f"""# Demo 1 Minimum Evidence Pack
+    summary_md = f"""# Demo 1 Evidence Pack
 
 - Data preprocessing and preparation: `training_test_data_preparation.json`
 - Data analytics results: `data_analytics_results.json`
@@ -150,7 +150,7 @@ def main() -> None:
 - Pricing RMSE: `{ongoing_ml['pricing_baseline']['rmse']:.4f}`
 """
     (out_dir / "demo1_summary.md").write_text(summary_md, encoding="utf-8")
-    print(f"Saved minimum evidence pack to {out_dir}")
+    print(f"Saved evidence pack to {out_dir}")
 
 
 if __name__ == "__main__":

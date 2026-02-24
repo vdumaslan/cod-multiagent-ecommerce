@@ -1,4 +1,4 @@
-# Demo 1 Minimum Evidence Pack
+# Demo 1 Evidence Pack
 
 - Data preprocessing and preparation: `training_test_data_preparation.json`
 - Data analytics results: `data_analytics_results.json`
