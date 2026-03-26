@@ -29,6 +29,16 @@ def drop_tables(project_id: str, dataset: str, table_names: Iterable[str]) -> No
         bq.delete_table(f"{project_id}.{dataset}.{name}", not_found_ok=True)
 
 
+def _normalize_timestamps_for_bq(df: pd.DataFrame) -> pd.DataFrame:
+    """Avoid pyarrow errors loading ns-resolution datetimes to BigQuery (us, UTC)."""
+    out = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[col]):
+            s = pd.to_datetime(out[col], utc=True)
+            out[col] = s.dt.floor("us")
+    return out
+
+
 def load_df(
     project_id: str,
     dataset: str,
@@ -40,6 +50,7 @@ def load_df(
 ) -> None:
     if df.empty:
         return
+    df = _normalize_timestamps_for_bq(df)
     cfg = bigquery.LoadJobConfig(write_disposition=write_disposition)
     if partition_field:
         cfg.time_partitioning = bigquery.TimePartitioning(
