@@ -28,6 +28,8 @@ jobs:
       contents: read
 
     env:
+      # CI has no local 43GB dump; always use HTTP partial ingest.
+      STAGE1_USE_LOCAL_FILES: "false"
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'linear-theater-436300-r9' }}
       BIGQUERY_LOCATION: ${{ vars.BIGQUERY_LOCATION || 'US' }}
       BIGQUERY_DATASET: ${{ vars.BIGQUERY_DATASET || 'seller_copilot_prod' }}
@@ -60,18 +62,17 @@ jobs:
         run: |
           MAX_ROWS="${{ github.event.inputs.max_rows }}"
           if [ -n "$MAX_ROWS" ]; then
-            python seller-copilot/src/pipelines/run_pipeline.py \
-              --config seller-copilot/config/pipeline.yaml \
-              --max-rows "$MAX_ROWS"
+            STAGE1_MAX_REVIEWS="$MAX_ROWS" python seller-copilot/src/data_acquisition/scripts/run_stage1.py \
+              --config seller-copilot/config/stage1_amazon_hk.yaml
           else
-            python seller-copilot/src/pipelines/run_pipeline.py \
-              --config seller-copilot/config/pipeline.yaml
+            python seller-copilot/src/data_acquisition/scripts/run_stage1.py \
+              --config seller-copilot/config/stage1_amazon_hk.yaml
           fi
 
       - name: Upload quality report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-report
-          path: seller-copilot/artifacts/quality_report.json
+          name: stage1-curation-summary
+          path: seller-copilot/artifacts/stage1/curation_summary.json
           if-no-files-found: warn

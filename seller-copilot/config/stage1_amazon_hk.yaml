@@ -1,0 +1,30 @@
+project:
+  project_id: linear-theater-436300-r9
+  dataset: seller_copilot_prod
+  location: US
+  service_account_key_path:
+
+source:
+  repo_id: McAuley-Lab/Amazon-Reviews-2023
+  home_kitchen_review_path: raw/review_categories/Home_and_Kitchen.jsonl
+  home_kitchen_meta_path: raw/meta_categories/meta_Home_and_Kitchen.jsonl
+  # Set true + local paths to scan downloaded JSONL (see stage1_amazon_hk_local.yaml)
+  use_local_files: false
+
+ingestion:
+  max_reviews: 800000
+  max_meta: 200000
+
+quality_gates:
+  min_reviews_per_product: 15
+  min_title_chars: 8
+  min_review_chars: 30
+  min_price_percentile: 0.01
+  max_price_percentile: 0.99
+  max_products: 100000
+  recent_year_floor: 2018
+
+ops:
+  reset_bigquery_tables: true
+  require_bigquery: true
+

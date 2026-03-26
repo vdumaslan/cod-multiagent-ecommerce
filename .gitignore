@@ -17,6 +17,11 @@ __pycache__/
 *.csv
 *.parquet
 seller-copilot/artifacts/
+# Large raw dataset dumps (download locally; do not commit)
+seller-copilot/data/raw/
 
-
+# GCP / local secrets (never commit)
+seller-copilot/.secrets/
+seller-copilot/linear-theater*.json
+seller-copilot/catboost_info/
 

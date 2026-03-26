@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Business Copilot — Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#1c2b3a",
+        primaryTextColor: "#f4f1ea",
+        primaryBorderColor: "#c9a227",
+        lineColor: "#8a9ba8",
+        secondaryColor: "#2a3d4f",
+        tertiaryColor: "#0f1720",
+        fontFamily: "DM Sans, system-ui, sans-serif",
+      },
+      flowchart: { curve: "basis", padding: 12, useMaxWidth: true },
+    });
+  </script>
+  <style>
+    :root {
+      --bg: #0f1720;
+      --panel: #162433;
+      --accent: #c9a227;
+      --text: #e8e4dc;
+      --muted: #8a9ba8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 10% -20%, rgba(201, 162, 39, 0.12), transparent 50%),
+        radial-gradient(ellipse 80% 60% at 100% 100%, rgba(42, 61, 79, 0.5), transparent 45%);
+      color: var(--text);
+      font-family: "DM Sans", system-ui, sans-serif;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+    header {
+      max-width: 960px;
+      margin: 0 auto 2rem;
+      border-left: 4px solid var(--accent);
+      padding-left: 1.25rem;
+    }
+    h1 {
+      font-family: "Fraunces", Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .diagram-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid rgba(201, 162, 39, 0.25);
+      border-radius: 4px;
+      padding: 1.5rem 1rem 2rem;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+    }
+    .hint {
+      max-width: 1100px;
+      margin: 1rem auto 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Business Copilot — System architecture</h1>
+  </header>
+  <div class="diagram-wrap">
+    <pre class="mermaid">
+flowchart TB
+  subgraph data [Data]
+    SRC["Amazon Reviews 2023\nHome & Kitchen"]
+    CUR["Curated\nproducts · reviews · signals"]
+    OPS["Ops\ninventory · sales · marketing · KPIs"]
+    SRC --> CUR
+    CUR --> OPS
+  end
+
+  subgraph ext [External]
+    RSS["Google News RSS"]
+  end
+
+  subgraph ml [Models]
+    M_SENT["VADER"]
+    M_TAB["CatBoost"]
+    M_EMB["MiniLM"]
+  end
+
+  subgraph retr [Retrieval]
+    R1["Query embedding"]
+    R2["FAISS index"]
+    R3["Evidence passages"]
+    R1 --> R2
+    R2 --> R3
+  end
+
+  subgraph agents [Agents]
+    MKT["Market intel"]
+    A1["Specialists"]
+    A2["Debate"]
+    ORCH["Orchestrator\nQwen2.5-0.5B-Instruct"]
+    A3["Policy"]
+    MKT --> A2
+    A1 --> A2
+    A2 --> ORCH
+    ORCH --> A3
+  end
+
+  subgraph ui [UI]
+    ST["Streamlit"]
+    LOG["Decision log"]
+    ST --> LOG
+  end
+
+  CUR --> M_SENT
+  CUR --> M_TAB
+  CUR --> M_EMB
+  M_EMB --> R1
+  M_SENT --> A1
+  M_TAB --> A1
+  OPS --> A1
+  RSS --> MKT
+  R3 --> A2
+  A3 --> ST
+    </pre>
+  </div>
+  <p class="hint">Export: <a href="https://mermaid.live" style="color: var(--accent);">mermaid.live</a> → PNG/SVG.</p>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# Local-only pipeline: build the filtered agent/model dataset on disk (no GCP required).
+# Run from repo root after raw JSONL is downloaded to seller-copilot/data/raw/amazon_reviews_2023/
+#
+#   python seller-copilot/src/data_acquisition/scripts/run_stage1.py --config seller-copilot/config/stage1_local_agent.yaml
+#
+# Outputs (see seller-copilot/data/agent_dataset/README.md):
+#   - products.parquet, reviews.parquet, product_signals.parquet, retrieval_corpus.parquet
+#   - agent_dataset_manifest.json
+
+project:
+  project_id: local-dev
+  dataset: local_only
+  location: US
+  service_account_key_path:
+
+source:
+  repo_id: McAuley-Lab/Amazon-Reviews-2023
+  home_kitchen_review_path: raw/review_categories/Home_and_Kitchen.jsonl
+  home_kitchen_meta_path: raw/meta_categories/meta_Home_and_Kitchen.jsonl
+  use_local_files: true
+  local_reviews_path: seller-copilot/data/raw/amazon_reviews_2023/Home_and_Kitchen.jsonl
+  local_meta_path: seller-copilot/data/raw/amazon_reviews_2023/meta_Home_and_Kitchen.jsonl
+
+ingestion:
+  max_reviews: 0
+  max_meta: 0
+
+quality_gates:
+  min_reviews_per_product: 15
+  min_title_chars: 8
+  min_review_chars: 30
+  min_price_percentile: 0.01
+  max_price_percentile: 0.99
+  max_products: 100000
+  recent_year_floor: 2018
+
+ops:
+  require_bigquery: false
+  reset_bigquery_tables: false
+  agent_dataset_dir: seller-copilot/data/agent_dataset

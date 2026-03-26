@@ -1,0 +1,4 @@
+# Defaults for scripts/generate_ops_data.py (CLI overrides).
+random_seed: 42
+sales_history_days: 180
+n_suppliers: 24

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "purpose": "Operational projections keyed to product catalog (inventory, sales, marketing).",
+  "random_seed": 49,
+  "sales_history_days": 180,
+  "n_products": 1500,
+  "row_counts": {
+    "inventory_skus": 1500,
+    "suppliers": 24,
+    "product_supplier_map": 1500,
+    "sales_daily": 74015,
+    "marketing_spend_daily": 113076,
+    "store_kpis_weekly": 26
+  },
+  "files": {
+    "inventory_skus.parquet": "SKU costs, stock, reorder params (join: product_id)",
+    "suppliers.parquet": "Supplier master",
+    "product_supplier_map.parquet": "product_id \u2192 supplier_id, MOQ",
+    "sales_daily.parquet": "Daily units/revenue (long)",
+    "marketing_spend_daily.parquet": "Daily ad spend by product (sparse)",
+    "store_kpis_weekly.parquet": "Weekly revenue/COGS-style rollups"
+  },
+  "join_key": "product_id (matches agent_dataset/products.parquet)",
+  "config": {
+    "random_seed": 49,
+    "sales_history_days": 180,
+    "n_suppliers": 24,
+    "start_date": null
+  }
+}

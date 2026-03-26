@@ -7,11 +7,18 @@ deployments:
       - seller-copilot
       - data-pipeline
     description: Daily cloud run for seller copilot pipeline.
-    entrypoint: seller-copilot/src/pipelines/prefect_flow.py:seller_copilot_pipeline
+    entrypoint: seller-copilot/src/data_acquisition/flows/stage1_amazon_hk_flow.py:run_stage1
     parameters:
-      config_path: seller-copilot/config/pipeline.yaml
-      max_rows: null
+      config_path: seller-copilot/config/stage1_amazon_hk.yaml
     schedules:
       - cron: "0 2 * * *"
         timezone: "America/Los_Angeles"
         active: true
+
+  - name: seller-copilot-eval
+    tags:
+      - seller-copilot
+      - evaluation
+    description: Evaluation orchestration wrapper for model comparison artifacts.
+    entrypoint: seller-copilot/src/data_acquisition/flows/eval_pipeline_flow.py:run_eval_pipeline
+    schedules: []

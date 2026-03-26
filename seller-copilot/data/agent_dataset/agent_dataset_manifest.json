@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "purpose": "Home & Kitchen agent tables for Seller Copilot (replicated from McAuley extract sampling).",
+  "created_at": "2026-03-24T01:50:56.686962+00:00",
+  "ingestion": {
+    "source": "McAuley-Lab/Amazon-Reviews-2023 Home_and_Kitchen (sampled pools)",
+    "review_pool_path": "C:\\Users\\niran\\Projects\\cod-multiagent-ecommerce\\seller-copilot\\data\\raw\\amazon_reviews_2023\\Home_and_Kitchen.jsonl",
+    "meta_pool_path": "C:\\Users\\niran\\Projects\\cod-multiagent-ecommerce\\seller-copilot\\data\\raw\\amazon_reviews_2023\\meta_Home_and_Kitchen.jsonl"
+  },
+  "quality_gates": {
+    "min_reviews_per_product": 18,
+    "replication_note": "Agent tables assembled from extract-style pools for downstream agents."
+  },
+  "row_counts": {
+    "products": 1500,
+    "reviews": 88837,
+    "product_signals": 1500,
+    "retrieval_corpus": 1500
+  },
+  "files": {
+    "products.parquet": "Product metadata and review aggregates.",
+    "reviews.parquet": "Review text and ratings.",
+    "product_signals.parquet": "Per-product signals.",
+    "retrieval_corpus.parquet": "RAG bundle."
+  },
+  "columns": {
+    "products": [
+      "product_id",
+      "title",
+      "brand",
+      "category",
+      "subcategory",
+      "description",
+      "price",
+      "avg_rating",
+      "rating_count",
+      "product_document",
+      "review_count",
+      "avg_review_rating",
+      "avg_helpful_vote",
+      "last_review_ts"
+    ],
+    "reviews": [
+      "review_id",
+      "product_id",
+      "review_title",
+      "review_text",
+      "rating",
+      "helpful_vote",
+      "event_ts"
+    ],
+    "product_signals": [
+      "product_id",
+      "review_count",
+      "positive_ratio",
+      "sentiment_score",
+      "recency_score"
+    ],
+    "retrieval_corpus": [
+      "product_id",
+      "product_document",
+      "category",
+      "subcategory",
+      "price",
+      "avg_rating"
+    ]
+  },
+  "build": {
+    "mode": "replicated_agent_baseline",
+    "n_products": 1500,
+    "n_reviews": 88837,
+    "pools": {
+      "review_text_n": 22067,
+      "meta_title_n": 14994
+    }
+  }
+}

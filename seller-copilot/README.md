@@ -1,108 +1,129 @@
-# CoD Multi-Agent E-Commerce (Seller Copilot)
+# Seller Copilot (Stage 1: Data Acquisition and Curation)
 
-This directory contains the seller copilot implementation for the project.
+This repository is now reset to a fresh Stage 1 implementation focused on clean Amazon Home & Kitchen data acquisition, strict quality gates, and curated data outputs for downstream agents/models.
 
-## Goals
-- Keep the entire project free (no paid APIs/subscriptions).
-- Run cloud-first with BigQuery + GitHub Actions + Jupyter workflows.
-- Use a debate architecture with 5 agents.
-- Use at least 4 distinct models.
-- Use distinct LLMs for Discovery, Sentiment, Ranking, Pricing, and Orchestrator synthesis.
-- CI note: any push touching `seller-copilot/` triggers the pipeline workflow.
+## Locked data source
+- Dataset: `McAuley-Lab/Amazon-Reviews-2023`
+- Category: `Home_and_Kitchen`
+- Paths:
+  - `raw/review_categories/Home_and_Kitchen.jsonl`
+  - `raw/meta_categories/meta_Home_and_Kitchen.jsonl`
 
-## Build Order
-1. Lock constraints and metrics (`docs/01_constraints_and_success.md`).
-2. Finalize model and dataset mapping (`docs/02_model_dataset_decision_matrix.md`).
-3. Ingest and prepare data (`src/pipelines/`).
-4. Train/evaluate models, including pricing FT-Transformer (`src/training/`).
-5. Wire agent debate flow (`src/agents/`).
-6. Launch web app (`src/app/streamlit_app.py`).
-7. Generate demo/workbook results pack (`src/training/generate_evaluation_reports.py`).
+**Full raw files (~43 GB total)** — download once to disk, then run two-pass curation locally:
 
-## Quickstart
+```bash
+python seller-copilot/scripts/download_amazon_hk_raw.py
+```
+
+Writes to `seller-copilot/data/raw/amazon_reviews_2023/` (gitignored). Ensure ~50 GB free space.
+
+### After download: build the agent / model dataset (local, no cloud)
+
+**Recommended default:** `config/stage1_local_agent.yaml` — same filters and curation, writes **only Parquet** (no GCP). Use this for demos, models, and the multi-agent app.
+
+```bash
+python seller-copilot/src/data_acquisition/scripts/run_stage1.py --config seller-copilot/config/stage1_local_agent.yaml
+```
+
+**What you get** (under `seller-copilot/data/agent_dataset/`, also duplicated under `artifacts/stage1/`):
+
+| File | Use |
+|------|-----|
+| `products.parquet` | Product metadata + stats for agents / tabular models |
+| `reviews.parquet` | Review text for NLP / sentiment / fine-tuning |
+| `product_signals.parquet` | Per-product aggregates (counts, sentiment, recency) |
+| `retrieval_corpus.parquet` | RAG / embeddings (`product_document` + ids) |
+| `agent_dataset_manifest.json` | Row counts, gate settings, column names |
+
+Details: `docs/AGENT_DATASET.md` and `data/agent_dataset/README.md`.
+
+Other configs:
+
+- `config/stage1_amazon_hk.yaml` — HTTP partial ingest (CI).
+- `config/stage1_amazon_hk_local.yaml` — local JSONL + optional BigQuery (`ops.require_bigquery`).
+
+`ingestion.max_reviews: 0` / `max_meta: 0` means **no cap** on rows collected for selected products (smoke: set `STAGE1_MAX_REVIEWS` / `STAGE1_MAX_META`).
+
+Expect **hours** of CPU/disk time for a full pass over ~43 GB.
+
+### Generate data (agent + ops)
+
+Pools titles/review text from your local **Home & Kitchen** JSONL, then writes **products / reviews / signals / retrieval** plus **inventory / sales / marketing**:
+
+```bash
+python seller-copilot/scripts/generate_data.py --products 8000
+python seller-copilot/scripts/generate_data.py --quick
+```
+
+Tune `--pool-reviews` / `--pool-meta` for larger text pools (slower pool step). Outputs: `data/agent_dataset/` and `data/synthetic/`.
+
+### Ops data only (if you already have `products.parquet`)
+
+```bash
+python seller-copilot/scripts/generate_ops_data.py
+```
+
+See **`docs/SYNTHETIC_DATA.md`**. Outputs: `seller-copilot/data/synthetic/` (Parquet + manifest).
+
+### External trends + web context (agent design)
+
+How to combine **RAG + your data + live web search** in one system: **`docs/AGENT_ARCHITECTURE_TRENDS.md`** (single “market intelligence” agent is a good pattern).
+
+## New structure
+- `src/common/bq.py`: BigQuery utilities
+- `src/data_acquisition/config.py`: typed config loader
+- `src/data_acquisition/quality.py`: normalization + quality gates
+- `src/data_acquisition/local_jsonl.py`: local two-pass JSONL streaming
+- `src/data_acquisition/flows/stage1_amazon_hk_flow.py`: Prefect flow
+- `src/data_acquisition/scripts/run_stage1.py`: CLI entrypoint
+- `config/stage1_amazon_hk.yaml`: default (remote HTTP ingest)
+- `config/stage1_local_agent.yaml`: **local files → agent Parquet bundle (no GCP)**
+- `config/stage1_amazon_hk_local.yaml`: full local file ingest (optional BigQuery)
+- `scripts/generate_data.py`: **agent + ops Parquet**
+- `scripts/generate_ops_data.py`: **ops only** (needs `products.parquet`)
+- `docs/SUBMISSION.md`, `docs/SYNTHETIC_DATA.md`, `docs/AGENT_ARCHITECTURE_TRENDS.md`
+
+## Quality gates enforced
+- Required IDs, non-empty metadata/text
+- Minimum review count per product
+- Recency threshold on review timestamps
+- Price outlier control (percentile bounds)
+- De-duplication and text completeness
+- Curation by product quality score
+
+## Run Stage 1
+Install dependencies:
 ```bash
 pip install -r seller-copilot/requirements.txt
 ```
 
-Windows runtime note:
-- Use the project virtual environment for all commands:
+Default (HTTP ingest; CI):
 ```bash
-py -3.13 -m venv .venv
-.\.venv\Scripts\python -m pip install -r seller-copilot/requirements.txt
-.\.venv\Scripts\python seller-copilot/src/training/generate_evaluation_reports.py
+python seller-copilot/src/data_acquisition/scripts/run_stage1.py --config seller-copilot/config/stage1_amazon_hk.yaml
 ```
 
-Run pipeline once (idempotent rerun-safe):
+Local agent bundle (after raw download):
 ```bash
-python seller-copilot/src/pipelines/run_pipeline.py --config seller-copilot/config/pipeline.yaml
+python seller-copilot/src/data_acquisition/scripts/run_stage1.py --config seller-copilot/config/stage1_local_agent.yaml
 ```
 
-Pipeline output:
-- BigQuery stage tables:
-  - `stg_amazon_reviews`
-  - `stg_amazon_meta`
-  - `stg_twitter_support`
-  - `stg_online_retail`
-  - `stg_telco_churn`
-- BigQuery canonical/model-ready tables:
-  - `products`, `reviews`, `support_tickets`, `retail_transactions`, `churn_signals`
-  - `product_features`, `sentiment_dataset`, `ranking_pairs`, `pricing_features`, `retrieval_corpus`, `training_splits`
-- BigQuery run logs:
-  - `pipeline_runs`
-- Local artifact:
-  - `seller-copilot/artifacts/quality_report.json`
-
-Scale for model training:
-- Increase `pipeline.max_rows_per_source` and/or per-source `target_rows` in `seller-copilot/config/pipeline.yaml`.
-- For validation smoke tests, pass `--max-rows 5000` or `--max-rows 10000`.
-
-For local/manual runs only, set environment variables:
+Full local files + optional BigQuery:
 ```bash
-setx GOOGLE_APPLICATION_CREDENTIALS "C:\Users\niran\OneDrive\Documents\linear-theater-436300-r9-f04051db9e69.json"
-setx GCP_PROJECT_ID "linear-theater-436300-r9"
-setx BIGQUERY_LOCATION "US"
-setx BIGQUERY_DATASET "seller_copilot_prod"
+python seller-copilot/src/data_acquisition/scripts/run_stage1.py --config seller-copilot/config/stage1_amazon_hk_local.yaml
 ```
 
-## Cloud Scheduling (GitHub Actions, free)
-The pipeline is scheduled daily and can be triggered manually from:
-- `.github/workflows/seller-copilot-pipeline.yml`
+## Outputs
+- **Primary handoff for agents/models** (`seller-copilot/data/agent_dataset/`):
+  - `products.parquet`, `reviews.parquet`, `product_signals.parquet`, `retrieval_corpus.parquet`, `agent_dataset_manifest.json`
+- **Debug / duplicate copies** (`seller-copilot/artifacts/stage1/`):
+  - `products_curated.parquet`, `reviews_curated.parquet`, `product_signals_curated.parquet`, `curation_summary.json`
+- **BigQuery** (only if `ops.require_bigquery: true` and credentials set): `products`, `reviews`, `product_signals`, `retrieval_corpus`
 
-Configure repository settings:
-- `Secrets`:
-  - `GCP_SA_KEY_JSON` = full service account JSON content
-  - `HF_TOKEN` (optional) = Hugging Face token for higher API rate limits on larger runs
-- `Variables` (optional; defaults already exist in workflow):
-  - `GCP_PROJECT_ID` = `linear-theater-436300-r9`
-  - `BIGQUERY_LOCATION` = `US`
-  - `BIGQUERY_DATASET` = `seller_copilot_prod`
+## BigQuery (optional)
+- `ops.reset_bigquery_tables: true` drops and rebuilds Stage 1 tables when loading cloud.
+- `ops.require_bigquery: false` (e.g. `stage1_local_agent.yaml`) skips GCP entirely.
 
-Then run via:
-- GitHub -> Actions -> `Seller Copilot Data Pipeline` -> `Run workflow`
-- Or wait for the daily cron schedule.
+**Upload local Parquet to BigQuery** (agent + synthetic tables): `docs/GCP_SETUP.md` and `scripts/upload_to_bigquery.py`.
 
-Run app:
-```bash
-streamlit run seller-copilot/src/app/streamlit_app.py
-```
-
-Generate reporting artifacts for demo/workbook:
-```bash
-python seller-copilot/src/training/generate_evaluation_reports.py
-```
-
-Reporting outputs:
-- `seller-copilot/artifacts/reports/performance_results.json`
-- `seller-copilot/artifacts/reports/ongoing_ml_results.json`
-- `seller-copilot/artifacts/reports/data_analytics_findings.json`
-- `seller-copilot/artifacts/reports/figures/*.png`
-- `seller-copilot/artifacts/reports/llm_sentiment_comparison.json`
-- `seller-copilot/artifacts/reports/comparisons/llm_sentiment_model_comparison.csv`
-- `seller-copilot/artifacts/reports/historical_llm_model.json`
-- `seller-copilot/artifacts/reports/samples/*.csv`
-
-LLM runtime notes:
-- Agent LLM IDs are configured in `seller-copilot/config/models.yaml`.
-- The app uses Hugging Face Inference API and requires `HF_TOKEN`.
-- If an LLM endpoint is unavailable, agents fall back to deterministic claims based on model evidence.
+**Validate datasets:** `python seller-copilot/scripts/validate_agent_data.py`
 
