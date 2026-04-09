@@ -1,5 +1,6 @@
 .venv/
 .venv312/
+.venv-copilot-v2/
 __pycache__/
 **/__pycache__/
 *.pyc
@@ -24,4 +25,10 @@ seller-copilot/data/raw/
 seller-copilot/.secrets/
 seller-copilot/linear-theater*.json
 seller-copilot/catboost_info/
+
+# Copilot V2 (do not commit large derived artifacts)
+copilot-v2/artifacts/
+copilot-v2/data/
+copilot-v2/logs/
+copilot-v2/src/copilot_v2.egg-info/
 
