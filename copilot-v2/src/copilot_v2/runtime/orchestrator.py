@@ -13,6 +13,8 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from copilot_v2.runtime.inventory_agent import InventoryAgentConfig, attach_inventory_to_ranked_actions
+
 
 @dataclass(frozen=True)
 class OrchestratorConfig:
@@ -300,6 +302,7 @@ def build_ranked_plans(
                     "margin_pct": float(r.get("margin_pct", 0.0)) if r is not None else 0.0,
                     "available_to_sell": float(r.get("available_to_sell", 0.0)) if r is not None else 0.0,
                     "mean_daily_revenue": float(r.get("mean_daily_revenue", 0.0)) if r is not None else 0.0,
+                    "total_returns": float(r.get("total_returns", 0.0)) if r is not None else 0.0,
                     "on_hand_units": float(r.get("on_hand_units", 0.0)) if r is not None else 0.0,
                     "safety_stock_units": float(r.get("safety_stock_units", 0.0)) if r is not None else 0.0,
                 },
@@ -308,6 +311,12 @@ def build_ranked_plans(
             }
         )
 
+    # Inventory Agent (rule-based) attaches an inventory classification per candidate action.
+    ranked_actions, inventory_by_pid = attach_inventory_to_ranked_actions(
+        ranked_actions,
+        cfg=InventoryAgentConfig(),
+    )
+
     trace = {
         "snapshot_id": cfg.snapshot_id,
         "owner_id": str(owner_id) if owner_id else None,
@@ -315,6 +324,7 @@ def build_ranked_plans(
         "pricing": {"wired": bool(price_pred), "source": "cache" if (ctx and ctx.pricing_cache) else "none"},
         "sentiment": {"wired": bool(sent_pred), "source": "cache" if (ctx and ctx.sentiment_cache) else "none"},
         "demo_allowlist_size": len(ctx.demo_allowlist) if (ctx and ctx.demo_allowlist) else 0,
+        "inventory": {"wired": bool(inventory_by_pid), "mode": "rules_v1"},
     }
     return {"input": {"goal": goal, "horizon_days": int(horizon_days), "constraints": constraints or {}}, "ranked_actions": ranked_actions, "trace": trace}
 

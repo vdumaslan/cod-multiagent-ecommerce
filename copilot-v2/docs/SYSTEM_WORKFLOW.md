@@ -204,6 +204,7 @@ For each candidate, the orchestrator attaches:
 - **Inventory**:
   - reads `on_hand_units` and `safety_stock_units`
   - derives `available_to_sell = max(on_hand_units - safety_stock_units, 0)`
+  - inventory agent classifies stock status: `stockout_risk | low_stock | overstocked | healthy`
 - **Revenue/returns** (from synthetic sales):
   - reads `sales_daily.parquet` and aggregates to `mean_daily_revenue`, `total_returns`
 
@@ -213,10 +214,15 @@ The orchestrator produces `baseline_ranked_actions`:
 - with `recommended_price_change_pct`, `sentiment`, `signals`, and `evidence`
 
 ### Step 6) Optional LLM debate refines the plan
-If `use_llm_policy=true`, the system runs a chain-of-debate:
-- specialists propose
-- peer review
-- judge returns `ranked_actions` JSON
+If `use_llm_policy=true`, the system runs a debate policy to refine the baseline plan.
+
+Supported modes:
+
+- **`debate_mode = "acj"` (default)**: Advocate → Critic → Judge
+  - Advocate proposes the strongest plan given retrieval + pricing + sentiment + inventory signals.
+  - Critic challenges the plan and highlights risks/conflicts.
+  - Judge produces the final `ranked_actions` JSON.
+- **`debate_mode = "legacy"`**: specialists → peer review → judge (older pipeline)
 
 Essential safety rules:
 - LLM may only use the candidate `product_id`s provided
@@ -269,9 +275,40 @@ curl -sS -X POST http://127.0.0.1:8008/orchestrate \
 ```bash
 curl -sS -X POST http://127.0.0.1:8008/orchestrate \
   -H 'Content-Type: application/json' \
-  -d '{"owner_id":"store_00","goal":"increase revenue while protecting margin","use_llm_policy":true,"llm_model":"qwen2.5:7b-instruct","candidate_m":10,"debate_top_k":3}' \
+  -d '{"owner_id":"store_00","goal":"increase revenue while protecting margin","use_llm_policy":true,"debate_mode":"acj","advocate_model":"qwen2.5:7b-instruct","critic_model":"qwen2.5:7b-instruct","judge_model":"qwen2.5:7b-instruct","candidate_m":10,"debate_top_k":3}' \
   | python3 -m json.tool
 ```
+
+---
+
+## Debate replay evaluation (debate-layer isolation)
+
+To compare debate model combinations fairly:
+
+1) Cache specialist outputs once (baseline pipeline only):
+
+```bash
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.cache_specialist_outputs \
+  --snapshot-id 38710839ca6e1009 \
+  --owner-id store_00 \
+  --goals-json copilot-v2/artifacts/evals/38710839ca6e1009/llm_policy_benchmark_goals_120.json \
+  --enable-pricing --enable-sentiment
+```
+
+2) Replay debate only over the saved inputs:
+
+```bash
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.replay_debate_models \
+  --inputs-jsonl copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/<RUN_ID>/specialist_inputs.jsonl \
+  --out-dir copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/<RUN_ID>/replay_results \
+  --advocate-models llama3.1:8b,mistral:7b-instruct-v0.3-q4_K_M \
+  --critic-models llama3.1:8b,mistral:7b-instruct-v0.3-q4_K_M \
+  --judge-models qwen2.5:7b-instruct
+```
+
+Outputs:
+- `rows.jsonl`: per-run rubric + latency
+- `summary.json`: aggregated rubric means and success rate by (advocate|critic|judge) combo
 
 ---
 
