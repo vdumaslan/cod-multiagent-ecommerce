@@ -73,6 +73,33 @@ const mockPlans = [
   },
 ];
 
+function buildPlansFromSample(sample) {
+  if (!sample || !Array.isArray(sample.baseline_actions)) {
+    return mockPlans;
+  }
+  return sample.baseline_actions.slice(0, 3).map((action, idx) => {
+    const productId = action.product_id || `unknown-${idx + 1}`;
+    const retrievalScore = action?.evidence?.retrieval_score ?? 0.7;
+    const returns = action?.signals?.total_returns ?? 0;
+    const riskFlag = Boolean(action?.inventory?.risk_flag);
+    const riskLevel = riskFlag ? "High" : returns > 3 ? "Medium" : "Low";
+    const confidence = Math.max(55, Math.min(95, Math.round(Number(retrievalScore) * 100)));
+    const impactScore = Math.max(50, Math.min(99, Math.round(confidence * 0.92)));
+    return {
+      id: productId,
+      title: `Replay Plan for ${productId}`,
+      actions: [
+        `Action: ${action.action_type || "reprice"} (${Number(action.recommended_price_change_pct || 0).toFixed(2)}%)`,
+        `Inventory status: ${action?.inventory?.stock_status || "unknown"}`,
+        `Evidence score: ${Number(retrievalScore).toFixed(3)}`,
+      ],
+      impactScore,
+      riskLevel,
+      confidence,
+    };
+  });
+}
+
 export default function App() {
   const [view, setView] = useState("query");
   const [query, setQuery] = useState("");
@@ -92,6 +119,7 @@ export default function App() {
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [saveStatusMessage, setSaveStatusMessage] = useState("");
   const [apiHealth, setApiHealth] = useState("checking");
+  const [plans, setPlans] = useState(mockPlans);
   const debateTimersRef = useRef([]);
   const saveTimerRef = useRef(null);
 
@@ -121,6 +149,7 @@ export default function App() {
           dispatchPipeline({ type: "SET_STATUS", agentName: name, status: "done" })
         );
         setAgentOutputs({ userQuery: query.trim(), retrieval, sentiment, pricing, inventory });
+        setPlans(buildPlansFromSample(retrieval.selected_sample));
         setView("debate");
       } catch {
         if (!cancelled) {
@@ -330,11 +359,12 @@ export default function App() {
     setContextHistory([]);
     setIsSavingPlan(false);
     setSaveStatusMessage("");
+    setPlans(mockPlans);
     setView("query");
   };
 
   const handleChoosePlan = (planId) => {
-    const chosenPlan = mockPlans.find((plan) => plan.id === planId);
+    const chosenPlan = plans.find((plan) => plan.id === planId);
     if (!chosenPlan) {
       return;
     }
@@ -428,7 +458,7 @@ export default function App() {
       )}
       {view === "results" && (
         <ResultsView
-          plans={mockPlans}
+          plans={plans}
           selectedPlanId={selectedPlanId}
           onChoosePlan={handleChoosePlan}
           onRejectAll={handleRejectAll}
