@@ -14,6 +14,7 @@ def main() -> None:
     ap.add_argument("--host", type=str, default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8008)
     ap.add_argument("--grounding-cache-dir", type=Path, default=None)
+    ap.add_argument("--grounding-cache-uri", type=str, default=None, help="Optional: local path or gs://... directory containing cache files.")
     ap.add_argument("--demo-allowlist-json", type=Path, default=None)
     args = ap.parse_args()
     run_server(
@@ -23,6 +24,7 @@ def main() -> None:
         host=args.host,
         port=int(args.port),
         grounding_cache_dir=args.grounding_cache_dir,
+        grounding_cache_uri=args.grounding_cache_uri,
         demo_allowlist_json=args.demo_allowlist_json,
     )
 

@@ -43,14 +43,20 @@ Pricing provides:
 
 `product_id` → `recommended_price_change_pct`
 
-In demos, this is usually served from a **precomputed cache** (`pricing_cache.json`) so requests are fast.
+In demos, this is usually served from a **precomputed cache** so requests are fast.
+The server can load either:
+- JSON: `pricing_cache.json`
+- Parquet: `pricing_cache.parquet` (recommended; smaller + faster to move to cloud)
 
 ### Sentiment subsystem (“sentiment agent”)
 Sentiment provides aggregated review probabilities and a score per product:
 
 `product_id` → `{n_reviews, p_pos, p_neu, p_neg, sentiment_score}`
 
-In demos, this is usually served from a **precomputed cache** (`sentiment_cache.json`).
+In demos, this is usually served from a **precomputed cache**.
+The server can load either:
+- JSON: `sentiment_cache.json`
+- Parquet: `sentiment_cache.parquet` (recommended)
 
 ### Optional LLM debate policy (“orchestrator agent policy”)
 If enabled, an LLM performs a chain-of-debate and outputs a strict JSON plan constrained to the candidate `product_id`s.
@@ -112,10 +118,16 @@ Download the following from Google Drive and unzip into the **repo root** so pat
 - **Destination**: `copilot-v2/artifacts/indexes/38710839ca6e1009/owners/`
 
 - **Grounding caches** (recommended for fast demos)
-- **Destination**: `copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache/`
-- **Must include**:
-  - `pricing_cache.json`
-  - `sentiment_cache.json`
+- **Destination (preferred, full caches)**:
+  - `copilot-v2/artifacts/caches/38710839ca6e1009/pricing/`
+  - `copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/`
+- **Must include (preferred, Parquet-first)**:
+  - pricing: `pricing_cache.parquet`
+  - sentiment: `sentiment_cache.parquet`
+- **Legacy fallback (JSON-only)**:
+  - pricing: `pricing_cache.json`
+  - sentiment: `sentiment_cache.json`
+  - legacy demo folder: `copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache/` (expects JSON files only)
 
 - **Model artifacts** (optional if you only use caches)
 - **Pricing winner**:
@@ -123,14 +135,18 @@ Download the following from Google Drive and unzip into the **repo root** so pat
 - **Sentiment winner**:
   - `copilot-v2/artifacts/models/38710839ca6e1009/sentiment/distilroberta-base_final_500k_slice_winner/`
 
+**Note (sentiment cache vs sentiment model):** At runtime, the server consumes a lightweight sentiment cache keyed by `product_id` with summary fields (`n_reviews`, `p_pos`, `p_neu`, `p_neg`). The cache can be Parquet (preferred) or JSON (legacy). You can generate that cache either:
+- **From the winner DistilRoBERTa model** (recommended for “production-like” signals), or
+- **From star ratings only** (much faster; good for smoke tests).
+
 ### Where to unzip (critical)
 
 Unzip archives into the **repository root** so that paths match exactly.
 
-After unzip, these should exist:
+After unzip, these should exist (Parquet-first):
 - `copilot-v2/artifacts/indexes/38710839ca6e1009/owners/store_00/dense/intfloat_e5-large-v2/index_meta.json`
-- `copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache/pricing_cache.json`
-- `copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache/sentiment_cache.json`
+- `copilot-v2/artifacts/caches/38710839ca6e1009/pricing/pricing_cache.parquet`
+- `copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.parquet`
 
 ### Portability note (important)
 
@@ -145,7 +161,44 @@ This means teammates can unzip anywhere, as long as the relative layout under `c
 ```bash
 # from repo root
 ls copilot-v2/artifacts/indexes/38710839ca6e1009/owners | head
-ls copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache
+ls copilot-v2/artifacts/caches/38710839ca6e1009/pricing
+ls copilot-v2/artifacts/caches/38710839ca6e1009/sentiment
+```
+
+### (Optional) Build grounding caches locally (full caches)
+
+```bash
+# Build sentiment cache (winner DistilRoBERTa; production-like).
+# By default we cap to 24 reviews per product for speed; set --max-reviews-per-product 0 to score all reviews (slow).
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_sentiment_cache \
+  --snapshot-id 38710839ca6e1009 \
+  --approach distilroberta \
+  --device cuda \
+  --batch-size 64 \
+  --max-length 256 \
+  --max-reviews-per-product 24 \
+  --write-json
+
+# Or: build sentiment cache from ratings only (fast)
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_sentiment_cache \
+  --snapshot-id 38710839ca6e1009 \
+  --approach ratings \
+  --write-json
+
+# Build pricing cache (winner TabPFN; requires TabPFN + model artifact).
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_pricing_cache \
+  --snapshot-id 38710839ca6e1009 \
+  --device cuda \
+  --write-json
+```
+
+If you still need the legacy demo folder (`.../orchestrator_demo/cache/`), copy JSON files into it:
+
+```bash
+cp copilot-v2/artifacts/caches/38710839ca6e1009/pricing/pricing_cache.json \
+  copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache/pricing_cache.json
+cp copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.json \
+  copilot-v2/artifacts/evals/38710839ca6e1009/orchestrator_demo/cache/sentiment_cache.json
 ```
 
 If you need to rewrite older indexes that used absolute paths in `index_meta.json`, run:
@@ -165,6 +218,31 @@ Add your shared links here (project-specific):
 ---
 
 ## Runtime workflow (request → response)
+
+### Step 0) Start the server (load indexes + caches)
+
+Recommended: point the server to the full caches folder so it can load Parquet or JSON.
+
+```bash
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+  --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts \
+  --grounding-cache-dir copilot-v2/artifacts/caches/38710839ca6e1009 \
+  --host 127.0.0.1 \
+  --port 8008
+```
+
+Cloud-friendly option (downloads cache dir from GCS, then loads locally):
+
+```bash
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+  --snapshot-id 38710839ca6e1009 \
+  --grounding-cache-uri gs://<YOUR_BUCKET>/copilot-v2/artifacts/caches/38710839ca6e1009 \
+  --host 0.0.0.0 \
+  --port 8008
+```
+
+Optional **`--demo-allowlist-json`** (path to a JSON array of `product_id` strings) restricts retrieval candidates to that set **before** owner filtering. Use only for targeted demos; a tight allowlist can produce **fewer than `top_n_actions`** rows if not enough IDs survive the owner filter.
 
 ### Step 1) Client calls `POST /orchestrate`
 The request must include:
@@ -197,10 +275,16 @@ Output is attached as evidence, e.g.:
 ### Step 4) Grounding enrichment attaches signals
 For each candidate, the orchestrator attaches:
 
-- **Pricing**:
-  - from `pricing_cache.json` when enabled/available (`pricing.source = "cache"`)
+- **Pricing** (when `enable_pricing=true`):
+  - Values come from the loaded **pricing cache** (Parquet `pricing_cache.parquet` or legacy JSON `pricing_cache.json`).
+  - **Candidate selection**: if a pricing cache is loaded, the orchestrator **prefers** retrieved SKUs that exist in that cache (in retrieval score order), then fills any remaining slots up to `top_n_actions` with the next-best retrieved SKUs even if they are **not** in the cache.
+  - **Per-action `pricing.source`**:
+    - `"cache"` — `recommended_price_change_pct` is from the TabPFN-backed cache.
+    - `"fallback"` — SKU is not in the cache; the server uses **`0.0%`** so the UI never shows `"none"` while pricing is enabled.
+  - When `enable_pricing=false`, missing cache entries use `"none"` (pricing not wired for that request).
+  - **`trace.pricing`**: `wired` reflects whether pricing was requested; `source` is `"cache+fallback"` when both a cache is loaded and pricing is enabled (mixed actions are possible), `"fallback"` if pricing is enabled but no cache loaded, or `"none"` if pricing is disabled.
 - **Sentiment**:
-  - from `sentiment_cache.json` when enabled/available
+  - from `sentiment_cache.parquet` or legacy `sentiment_cache.json` when enabled/available
 - **Inventory**:
   - reads `on_hand_units` and `safety_stock_units`
   - derives `available_to_sell = max(on_hand_units - safety_stock_units, 0)`
@@ -243,7 +327,21 @@ Response includes:
 - `baseline_ranked_actions` (grounded baseline)
 - `ranked_actions` (final; baseline or LLM-refined)
 - `trace` (includes `snapshot_id`, `owner_id`, cache wiring info)
-- optional `debate_trace` (debug + timings)
+- optional `debate_trace` (debug + timings). On successful ACJ runs this includes at least `debate_mode: "acj"` plus the models and prompt fields used for that request.
+
+**Note (`top_n_actions` vs. retrieval size):** The orchestrator returns up to `top_n_actions` rows. If retrieval (after **owner filter** and optional **`--demo-allowlist-json`**) yields fewer distinct candidates than `top_n_actions`, the response will contain fewer actions. For demos, keep the allowlist broad enough or omit it unless you intentionally narrow the catalog.
+
+### React UI (local dev)
+
+- Code: `copilot-v2/src/ui/`
+- The Vite dev server proxies **`/health`** and **`/orchestrate`** to `http://127.0.0.1:8008` so the browser avoids CORS while the UI runs on port **5173**.
+- Start the orchestrator first, then:
+
+```bash
+cd copilot-v2/src/ui
+npm install
+npm run dev
+```
 
 ---
 

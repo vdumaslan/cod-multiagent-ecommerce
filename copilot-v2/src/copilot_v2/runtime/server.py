@@ -14,6 +14,7 @@ from copilot_v2.runtime.debate import (
     run_advocate_critic_judge_safe,
     run_chain_of_debate_safe,
 )
+from copilot_v2.runtime.cache_io import load_grounding_caches_into_ctx, resolve_grounding_cache_dir
 from copilot_v2.runtime.orchestrator import (
     OrchestratorConfig,
     OrchestratorContext,
@@ -58,12 +59,8 @@ def _get_owner_retriever(*, owner_id: str) -> dict[str, Any] | None:
 
 
 def _maybe_load_grounding_cache(ctx: OrchestratorContext, cache_dir: Path) -> None:
-    p = cache_dir / "pricing_cache.json"
-    s = cache_dir / "sentiment_cache.json"
-    if p.is_file():
-        ctx.pricing_cache = json.loads(p.read_text(encoding="utf-8"))
-    if s.is_file():
-        ctx.sentiment_cache = json.loads(s.read_text(encoding="utf-8"))
+    # Backwards-compatible loader; now supports JSON or Parquet.
+    load_grounding_caches_into_ctx(ctx=ctx, cache_dir=cache_dir)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -209,6 +206,15 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 debate_trace = trace
                 if acts is not None and err is None:
+                    # Record debate configuration on success too (not only on error paths).
+                    if isinstance(debate_trace, dict):
+                        debate_trace["debate_mode"] = debate_mode
+                        debate_trace["advocate_model"] = advocate_model
+                        debate_trace["critic_model"] = critic_model
+                        debate_trace["judge_model"] = judge_model
+                        debate_trace["prompt_style"] = prompt_style
+                        debate_trace["prompt_version"] = prompt_version
+
                     by_pid = {str(a.get("product_id")): a for a in baseline_actions}
                     final_actions = []
                     for i, act in enumerate(acts):
@@ -249,6 +255,7 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 8008,
     grounding_cache_dir: Path | None = None,
+    grounding_cache_uri: str | None = None,
     demo_allowlist_json: Path | None = None,
 ) -> None:
     registry = _read_registry(registry_path)
@@ -272,8 +279,12 @@ def run_server(
     except Exception:
         ctx.product_owner = None
 
-    if grounding_cache_dir is not None and grounding_cache_dir.is_dir():
-        _maybe_load_grounding_cache(ctx, grounding_cache_dir)
+    resolved_cache_dir, _source = resolve_grounding_cache_dir(
+        grounding_cache_dir=grounding_cache_dir,
+        grounding_cache_uri=grounding_cache_uri,
+    )
+    if resolved_cache_dir is not None and resolved_cache_dir.is_dir():
+        _maybe_load_grounding_cache(ctx, resolved_cache_dir)
     if demo_allowlist_json is not None and demo_allowlist_json.is_file():
         ids = json.loads(demo_allowlist_json.read_text(encoding="utf-8"))
         if isinstance(ids, list):

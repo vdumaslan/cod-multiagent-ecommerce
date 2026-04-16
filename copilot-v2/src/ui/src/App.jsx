@@ -4,7 +4,10 @@ import PipelineStatusView from "./components/PipelineStatusView";
 import QueryInputView from "./components/QueryInputView";
 import ResultsView from "./components/ResultsView";
 
-const API_BASE = "http://127.0.0.1:8010";
+// Orchestrator API.
+// In dev, Vite proxies /health and /orchestrate to 127.0.0.1:8008 (see vite.config.js).
+const API_BASE = "";
+const DEFAULT_OWNER_ID = "store_00";
 const pipelineAgents = ["Retrieval", "Sentiment", "Pricing", "Inventory"];
 const initialPipelineState = pipelineAgents.map((name) => ({ name, status: "idle" }));
 
@@ -32,6 +35,36 @@ async function postJson(path, payload) {
     throw new Error(data.error || `API ${path} returned not ok`);
   }
   return data.output;
+}
+
+async function orchestrateGoal(goal) {
+  const res = await fetch(`${API_BASE}/orchestrate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      goal,
+      owner_id: DEFAULT_OWNER_ID,
+      enable_pricing: true,
+      enable_sentiment: true,
+      use_llm_policy: true,
+      debate_mode: "acj",
+      advocate_model: "llama3.1:8b",
+      critic_model: "qwen2.5:7b-instruct",
+      judge_model: "qwen2.5:7b-instruct",
+      prompt_style: "few_shot_json",
+      prompt_version: "v1",
+      debate_top_k: 3,
+      candidate_m: 20,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`API /orchestrate failed with status ${res.status}`);
+  }
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || "API /orchestrate returned not ok");
+  }
+  return data;
 }
 
 const mockPlans = [
@@ -119,7 +152,8 @@ export default function App() {
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [saveStatusMessage, setSaveStatusMessage] = useState("");
   const [apiHealth, setApiHealth] = useState("checking");
-  const [plans, setPlans] = useState(mockPlans);
+  const [plans, setPlans] = useState([]);
+  const [orchestrateMeta, setOrchestrateMeta] = useState(null);
   const debateTimersRef = useRef([]);
   const saveTimerRef = useRef(null);
 
@@ -276,8 +310,53 @@ export default function App() {
     }
 
     setIsLoading(true);
-    setView("pipeline");
-    setTimeout(() => setIsLoading(false), 700);
+    orchestrateGoal(query.trim())
+      .then((data) => {
+        const ranked = data.ranked_actions || [];
+        const mappedPlans = ranked.map((a) => {
+          const pid = a.product_id;
+          const pct = a.recommended_price_change_pct;
+          const sent = a.sentiment || {};
+          const inv = a.inventory || {};
+          const stock = inv.stock_status ? `Inventory: ${inv.stock_status}` : "Inventory: (n/a)";
+          const sentLine =
+            sent && sent.n_reviews
+              ? `Sentiment (n=${sent.n_reviews}): pos=${Number(sent.p_pos).toFixed(2)} neu=${Number(sent.p_neu).toFixed(
+                  2
+                )} neg=${Number(sent.p_neg).toFixed(2)}`
+              : "Sentiment: (n/a)";
+          const priceLine =
+            typeof pct === "number"
+              ? `Pricing recommendation: ${pct.toFixed(2)}% (source=${a?.pricing?.source || "unknown"})`
+              : "Pricing: (n/a)";
+          return {
+            id: String(pid),
+            title: `${a.action_type || "action"} — ${pid}`,
+            actions: [
+              priceLine,
+              sentLine,
+              stock,
+              ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
+              ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
+            ].slice(0, 8),
+            impactScore: 80,
+            riskLevel: (inv.risk_flag ? "High" : "Low"),
+            confidence: 85,
+          };
+        });
+        setPlans(mappedPlans);
+        setOrchestrateMeta({
+          owner_id: data?.trace?.owner_id || DEFAULT_OWNER_ID,
+          pricing: data?.trace?.pricing || null,
+          sentiment: data?.trace?.sentiment || null,
+          debate: data?.debate_trace || null,
+        });
+        setView("results");
+      })
+      .catch(() => {
+        setView("query");
+      })
+      .finally(() => setIsLoading(false));
   };
 
   const handleAnotherRound = async () => {
@@ -359,7 +438,8 @@ export default function App() {
     setContextHistory([]);
     setIsSavingPlan(false);
     setSaveStatusMessage("");
-    setPlans(mockPlans);
+    setPlans([]);
+    setOrchestrateMeta(null);
     setView("query");
   };
 
@@ -430,7 +510,10 @@ export default function App() {
             API {apiHealth}
           </span>
         </div>
-        <p className="mt-2 text-slate-400">View flow: query → pipeline → debate → results</p>
+        <p className="mt-2 text-slate-400">
+          View flow: query → orchestrate (retrieval + caches + ACJ debate) → results
+          {orchestrateMeta?.debate?.debate_mode ? ` (debate=${orchestrateMeta.debate.debate_mode})` : ""}
+        </p>
       </div>
 
       {view === "query" && (
@@ -458,7 +541,7 @@ export default function App() {
       )}
       {view === "results" && (
         <ResultsView
-          plans={plans}
+          plans={plans.length ? plans : mockPlans}
           selectedPlanId={selectedPlanId}
           onChoosePlan={handleChoosePlan}
           onRejectAll={handleRejectAll}

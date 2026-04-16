@@ -267,7 +267,32 @@ def build_ranked_plans(
         top = top[mask].copy()
 
     by_score = top.sort_values(["score", "recency_score"], ascending=[False, False])
-    candidate_pids = by_score["product_id"].astype(str).head(cfg.top_n_actions).tolist()
+    # Candidate selection policy:
+    # - Always return top_n_actions when possible.
+    # - When enable_pricing=true and a pricing_cache is available, prefer SKUs present in the cache
+    #   so UI never shows pricing.source="none". If we still can't fill the list, we allow a
+    #   fallback pricing recommendation of 0.0% (pricing.source="fallback") for remaining slots.
+    candidate_pids: list[str] = []
+    all_pids_ranked = by_score["product_id"].astype(str).tolist()
+    cache_pids: set[str] = set()
+    if enable_pricing and ctx is not None and ctx.pricing_cache:
+        cache_pids = set(str(x) for x in ctx.pricing_cache.keys())
+
+    if cache_pids:
+        for pid in all_pids_ranked:
+            if pid in cache_pids:
+                candidate_pids.append(pid)
+                if len(candidate_pids) >= int(cfg.top_n_actions):
+                    break
+
+    # Fill remaining slots with next-best products (even if not priced) so we still return N actions.
+    if len(candidate_pids) < int(cfg.top_n_actions):
+        for pid in all_pids_ranked:
+            if pid in candidate_pids:
+                continue
+            candidate_pids.append(pid)
+            if len(candidate_pids) >= int(cfg.top_n_actions):
+                break
 
     price_pred: dict[str, float] = {}
     if enable_pricing and ctx is not None and ctx.pricing_cache:
@@ -296,7 +321,13 @@ def build_ranked_plans(
                 "product_id": pid,
                 "action_type": "reprice" if float(s.get("p_neg", 0.0)) <= 0.35 else "investigate",
                 "recommended_price_change_pct": float(price_pred.get(pid, 0.0)),
-                "pricing": {"source": "cache" if pid in price_pred else "none"},
+                "pricing": {
+                    "source": (
+                        "cache"
+                        if pid in price_pred
+                        else ("fallback" if enable_pricing else "none")
+                    )
+                },
                 "sentiment": s,
                 "signals": {
                     "margin_pct": float(r.get("margin_pct", 0.0)) if r is not None else 0.0,
@@ -321,7 +352,14 @@ def build_ranked_plans(
         "snapshot_id": cfg.snapshot_id,
         "owner_id": str(owner_id) if owner_id else None,
         "retrieval_index_meta": str(index_meta),
-        "pricing": {"wired": bool(price_pred), "source": "cache" if (ctx and ctx.pricing_cache) else "none"},
+        "pricing": {
+            "wired": bool(enable_pricing),
+            "source": (
+                "cache+fallback"
+                if (enable_pricing and ctx and ctx.pricing_cache)
+                else ("none" if not enable_pricing else "fallback")
+            ),
+        },
         "sentiment": {"wired": bool(sent_pred), "source": "cache" if (ctx and ctx.sentiment_cache) else "none"},
         "demo_allowlist_size": len(ctx.demo_allowlist) if (ctx and ctx.demo_allowlist) else 0,
         "inventory": {"wired": bool(inventory_by_pid), "mode": "rules_v1"},
