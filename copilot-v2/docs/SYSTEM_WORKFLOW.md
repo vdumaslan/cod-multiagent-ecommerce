@@ -224,6 +224,14 @@ Supported modes:
   - Judge produces the final `ranked_actions` JSON.
 - **`debate_mode = "legacy"`**: specialists → peer review → judge (older pipeline)
 
+ACJ **prompt variant** (do not mix with model-grid runs; compare in separate replays):
+
+- **`prompt_style`** / **`prompt_version`**: same meaning as debate replay (`zero_shot_json`, `few_shot_json`, `cot_hidden`, `structured_rationale`).
+- **Server defaults (demo):** `few_shot_json` + `v1` unless overridden by the request body or environment:
+  - `COPILOT_V2_ACJ_PROMPT_STYLE` (default `few_shot_json`)
+  - `COPILOT_V2_ACJ_PROMPT_VERSION` (default `v1`)
+- Request body keys `prompt_style` and `prompt_version` override the environment for that call.
+
 Essential safety rules:
 - LLM may only use the candidate `product_id`s provided
 - output must be strict JSON and is validated

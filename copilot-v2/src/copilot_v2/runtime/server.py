@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +25,8 @@ from copilot_v2.runtime.orchestrator import (
     _read_registry,
     build_ranked_plans,
 )
+
+_ACJ_PROMPT_STYLES = frozenset({"zero_shot_json", "few_shot_json", "cot_hidden", "structured_rationale"})
 
 
 class _State:
@@ -126,6 +129,16 @@ class Handler(BaseHTTPRequestHandler):
             advocate_model = str(body.get("advocate_model") or llm_model)
             critic_model = str(body.get("critic_model") or llm_model)
             judge_model = str(body.get("judge_model") or llm_model)
+            prompt_style = str(
+                body.get("prompt_style")
+                or os.environ.get("COPILOT_V2_ACJ_PROMPT_STYLE")
+                or "few_shot_json"
+            ).strip()
+            if prompt_style not in _ACJ_PROMPT_STYLES:
+                prompt_style = "few_shot_json"
+            prompt_version = str(
+                body.get("prompt_version") or os.environ.get("COPILOT_V2_ACJ_PROMPT_VERSION") or "v1"
+            ).strip() or "v1"
             debate_top_k = int(body.get("debate_top_k") or min(3, top_n_actions))
             candidate_m = int(body.get("candidate_m") or 20)
 
@@ -184,6 +197,8 @@ class Handler(BaseHTTPRequestHandler):
                             advocate_model=advocate_model,
                             critic_model=critic_model,
                             judge_model=judge_model,
+                            prompt_style=prompt_style,
+                            prompt_version=prompt_version,
                             top_k=debate_top_k,
                             candidate_m=candidate_m,
                         ),
@@ -213,6 +228,8 @@ class Handler(BaseHTTPRequestHandler):
                         debate_trace["advocate_model"] = advocate_model
                         debate_trace["critic_model"] = critic_model
                         debate_trace["judge_model"] = judge_model
+                        debate_trace["prompt_style"] = prompt_style
+                        debate_trace["prompt_version"] = prompt_version
 
             out["baseline_ranked_actions"] = baseline_actions
             out["ranked_actions"] = final_actions

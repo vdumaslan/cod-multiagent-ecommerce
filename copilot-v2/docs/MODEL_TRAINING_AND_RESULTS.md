@@ -457,12 +457,41 @@ Role-wise averages (across these 8 combos; directional signal):
 
 **Recommended default ACJ (from this 20-goal run):** `llama3.1:8b | qwen2.5:7b-instruct | qwen2.5:7b-instruct` (best overall conflict_detection with strong justification and good latency).
 
+### 4.3 Phase B — prompt ablation (120 goals, fixed ACJ models)
+
+After locking models to **`llama3.1:8b | qwen2.5:7b-instruct | qwen2.5:7b-instruct`**, the next axis is **`prompt_style`** only (same cached specialist inputs, `prompt_version=v1`).
+
+- **Snapshot**: `38710839ca6e1009`
+- **Cached specialist inputs**:
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_122444/specialist_inputs.jsonl`
+- **Replay outputs** (one folder per style):
+  - `.../prompt_ablation_llama_qwen_qwen/zero_shot_json_v1/summary.json`
+  - `.../prompt_ablation_llama_qwen_qwen/few_shot_json_v1/summary.json`
+  - `.../prompt_ablation_llama_qwen_qwen/structured_rationale_v1/summary.json`
+  - `.../prompt_ablation_llama_qwen_qwen/cot_hidden_v1/summary.json`
+
+#### Results (`n=120` per style)
+
+| prompt_style | ok_rate | conflict_detection | decision_justification | constraint_respect | latency_s_mean |
+|---|---:|---:|---:|---:|---:|
+| zero_shot_json | 1.00 | 0.758 | 0.975 | 0.746 | 20.9 |
+| few_shot_json | 1.00 | 0.592 | 0.994 | **0.964** | 21.0 |
+| structured_rationale | 1.00 | 0.750 | 0.983 | 0.799 | 21.1 |
+| cot_hidden | 1.00 | 0.733 | 0.953 | 0.847 | 7.8 |
+
+`json_valid` and `grounded_ids` were **1.00** for all four.
+
+**Interpretation:** few-shot JSON improves **constraint_respect** at the cost of **conflict_detection** on this rubric; zero-shot is best on conflict; structured rationale is a middle path. **cot_hidden** (private step-by-step, JSON-only output) sits between zero-shot and few-shot on constraints and conflict, with slightly lower **decision_justification** than few-shot. **Latency** for the first three rows (~21 s/run) was measured in one session; **cot_hidden** was replayed in a separate run (~7.8 s/run) and is **not** directly comparable for timing—use rubric columns for cross-style comparison.
+
+**Demo default:** **`few_shot_json` + `v1`** (set in the orchestrator server via `COPILOT_V2_ACJ_PROMPT_STYLE` / `COPILOT_V2_ACJ_PROMPT_VERSION`, overridable per request). Absolute **latency_s_mean** across prompt styles is only comparable in a single back-to-back session; rubric columns are the fair cross-style comparison.
+
 ---
 
 ## 5. Changelog
 
 | Date (UTC) | Change |
 |------------|--------|
+| 2026-04-15 | Debate §4.3: **Phase B prompt ablation** (120 goals, fixed ACJ models) including **`cot_hidden`**; demo default **`few_shot_json` / `v1`** via server env. |
 | 2026-04-03 | Registry timestamp for retrieval + pricing. |
 | 2026-04-03 | Replaced link-out summary with **full inline tables** (screen / refine / final) and **explicit winner rationale** per agent. |
 | 2026-04-04 | **Qwen2.5-1.5B-Instruct** full **10k** eval (`metrics_qwen_slice_10k.json`); sentiment §3 updated (DeBERTa fp32 outcome, VADER vs Qwen pick). |
