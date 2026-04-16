@@ -17,6 +17,8 @@
 | **Retrieval** | Metrics at **K = 10**. Dense models use query/document prefixes where noted. |
 | **Pricing** | Target: `recommended_price_change_pct`. Predictions evaluated with **±10% policy clip** (`violation_rate_clipped` is 0 when clip is applied). **Screen** = cheap pass on **2000 val rows**; **refine** = **full validation set** for top configs from screen; **final** = **held-out test** (n = **7179**). |
 | **Sentiment** | Labels: `neg`, `neu`, `pos`. **Slice 10k** = fixed ID list `artifacts/evals/38710839ca6e1009/sentiment/sentiment_eval_slice_10k_ids.json`. |
+| **Inventory** | Rule-based 4-class label: `stockout_risk`, `low_stock`, `overstocked`, `healthy` (no model training). |
+| **Debate replay eval** | Cache specialist outputs once, then replay Advocate/Critic/Judge with different LLM combos; score with deterministic rubric. |
 
 ---
 
@@ -346,10 +348,150 @@ We attempted both **DeBERTa-v3-small** and **DeBERTa-v3-base**, with multiple mi
 
 ---
 
-## 4. Changelog
+## 4. Debate replay evaluation (ACJ debate layer)
+
+This section evaluates the **Advocate → Critic → Judge** debate layer in isolation by replaying cached specialist inputs (retrieval + pricing + sentiment + inventory signals).
+
+### 4.1 Smoke run — full 27 combinations (5 goals)
+
+- **Snapshot**: `38710839ca6e1009`
+- **Owner**: `store_00`
+- **Goal set** (first 5 from the 20-goal file):
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay_goals_20.json`
+  - generated subset: `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay_goals_5.json`
+- **Cached specialist inputs** (baseline-only; reused across all combos):
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_110516/specialist_inputs.jsonl`
+- **Replay outputs**:
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_110516/replay_results_27/rows.jsonl`
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_110516/replay_results_27/summary.json`
+
+#### Model grid
+
+All 27 role combinations of:
+
+- `qwen2.5:7b-instruct`
+- `llama3.1:8b`
+- `mistral:7b-instruct-v0.3-q4_K_M`
+
+#### Aggregate results (smoke)
+
+- **Total runs**: 135 (= 5 goals × 27 combos)
+- **debate_ok_rate**: 1.00 for all combos on this small set (no schema failures)
+
+Top combos by (ok_rate, conflict_detection, decision_justification):
+
+| Advocate | Critic | Judge | n | ok_rate | conflict_detection | decision_justification | grounded_ids | constraint_respect | latency_s_mean |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| llama3.1:8b | mistral:7b-instruct-v0.3-q4_K_M | mistral:7b-instruct-v0.3-q4_K_M | 5 | 1.00 | 1.00 | 1.00 | 1.00 | 0.93 | 8.9 |
+| mistral:7b-instruct-v0.3-q4_K_M | llama3.1:8b | qwen2.5:7b-instruct | 5 | 1.00 | 1.00 | 1.00 | 1.00 | 0.60 | 11.5 |
+| mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | mistral:7b-instruct-v0.3-q4_K_M | 5 | 1.00 | 1.00 | 0.93 | 1.00 | 0.87 | 9.1 |
+| qwen2.5:7b-instruct | qwen2.5:7b-instruct | mistral:7b-instruct-v0.3-q4_K_M | 5 | 1.00 | 1.00 | 0.80 | 1.00 | 1.00 | 6.8 |
+| llama3.1:8b | qwen2.5:7b-instruct | mistral:7b-instruct-v0.3-q4_K_M | 5 | 1.00 | 0.80 | 1.00 | 1.00 | 1.00 | 9.4 |
+| mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | llama3.1:8b | 5 | 1.00 | 0.80 | 1.00 | 1.00 | 0.73 | 8.7 |
+| mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | qwen2.5:7b-instruct | 5 | 1.00 | 0.80 | 1.00 | 1.00 | 0.73 | 8.1 |
+| llama3.1:8b | mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | 5 | 1.00 | 0.60 | 1.00 | 1.00 | 0.93 | 6.6 |
+
+Role-wise averages (across all 27 combos; interpret as directional only for smoke size):
+
+| Role | Model | avg_ok_rate | avg_conflict_detection | avg_decision_justification | avg_latency_s |
+|---|---|---:|---:|---:|---:|
+| Advocate | mistral:7b-instruct-v0.3-q4_K_M | 1.00 | 0.64 | 0.93 | 10.1 |
+| Advocate | llama3.1:8b | 1.00 | 0.60 | 0.90 | 8.6 |
+| Advocate | qwen2.5:7b-instruct | 1.00 | 0.53 | 0.90 | 8.7 |
+| Critic | qwen2.5:7b-instruct | 1.00 | 0.71 | 0.91 | 7.8 |
+| Critic | mistral:7b-instruct-v0.3-q4_K_M | 1.00 | 0.60 | 0.90 | 7.6 |
+| Critic | llama3.1:8b | 1.00 | 0.47 | 0.92 | 11.9 |
+| Judge | qwen2.5:7b-instruct | 1.00 | 0.58 | 0.99 | 8.3 |
+| Judge | mistral:7b-instruct-v0.3-q4_K_M | 1.00 | 0.69 | 0.92 | 10.1 |
+| Judge | llama3.1:8b | 1.00 | 0.51 | 0.81 | 8.9 |
+
+**Next step (after smoke):** pick 1–2 models per role (Advocate/Critic/Judge) and rerun on a larger goal set (e.g. 20 goals → then 120 goals) to reduce variance.
+
+### 4.2 Narrowed replay — 8 combinations (20 goals)
+
+- **Snapshot**: `38710839ca6e1009`
+- **Owner**: `store_00`
+- **Goal set (20 goals)**:
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay_goals_20.json`
+- **Cached specialist inputs**:
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_115235/specialist_inputs.jsonl`
+- **Replay outputs**:
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_115235/replay_results_8x20/rows.jsonl`
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_115235/replay_results_8x20/summary.json`
+
+#### Model grid (8 combos)
+
+- **Advocate**: `mistral:7b-instruct-v0.3-q4_K_M`, `llama3.1:8b`
+- **Critic**: `qwen2.5:7b-instruct`, `mistral:7b-instruct-v0.3-q4_K_M`
+- **Judge**: `qwen2.5:7b-instruct`, `mistral:7b-instruct-v0.3-q4_K_M`
+
+#### Aggregate results (20 goals)
+
+- **Total runs**: 160 (= 20 goals × 8 combos)
+- **debate_ok_rate**: 1.00 for all combos (no schema failures)
+- **json_valid / grounded_ids**: 1.00 for all combos
+
+Top combos (sorted by conflict_detection, then decision_justification):
+
+| Advocate | Critic | Judge | n | ok_rate | conflict_detection | decision_justification | constraint_respect | latency_s_mean |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| llama3.1:8b | qwen2.5:7b-instruct | qwen2.5:7b-instruct | 20 | 1.00 | 0.90 | 0.97 | 0.88 | 7.6 |
+| mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | mistral:7b-instruct-v0.3-q4_K_M | 20 | 1.00 | 0.90 | 0.83 | 0.78 | 9.0 |
+| mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | qwen2.5:7b-instruct | 20 | 1.00 | 0.80 | 1.00 | 0.73 | 8.6 |
+| llama3.1:8b | qwen2.5:7b-instruct | mistral:7b-instruct-v0.3-q4_K_M | 20 | 1.00 | 0.80 | 0.80 | 0.92 | 8.3 |
+| llama3.1:8b | mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | 20 | 1.00 | 0.75 | 0.98 | 0.87 | 7.8 |
+| llama3.1:8b | mistral:7b-instruct-v0.3-q4_K_M | mistral:7b-instruct-v0.3-q4_K_M | 20 | 1.00 | 0.70 | 0.90 | 0.90 | 8.0 |
+| mistral:7b-instruct-v0.3-q4_K_M | mistral:7b-instruct-v0.3-q4_K_M | mistral:7b-instruct-v0.3-q4_K_M | 20 | 1.00 | 0.50 | 0.87 | 0.88 | 9.2 |
+| mistral:7b-instruct-v0.3-q4_K_M | mistral:7b-instruct-v0.3-q4_K_M | qwen2.5:7b-instruct | 20 | 1.00 | 0.40 | 1.00 | 0.67 | 7.8 |
+
+Role-wise averages (across these 8 combos; directional signal):
+
+| Role | Model | avg_conflict_detection | avg_decision_justification | avg_constraint_respect | avg_latency_s |
+|---|---|---:|---:|---:|---:|
+| Advocate | llama3.1:8b | 0.79 | 0.91 | 0.89 | 7.9 |
+| Advocate | mistral:7b-instruct-v0.3-q4_K_M | 0.65 | 0.93 | 0.77 | 8.6 |
+| Critic | qwen2.5:7b-instruct | 0.85 | 0.90 | 0.83 | 8.4 |
+| Critic | mistral:7b-instruct-v0.3-q4_K_M | 0.59 | 0.94 | 0.83 | 8.2 |
+| Judge | qwen2.5:7b-instruct | 0.71 | 0.99 | 0.79 | 8.0 |
+| Judge | mistral:7b-instruct-v0.3-q4_K_M | 0.72 | 0.85 | 0.87 | 8.6 |
+
+**Recommended default ACJ (from this 20-goal run):** `llama3.1:8b | qwen2.5:7b-instruct | qwen2.5:7b-instruct` (best overall conflict_detection with strong justification and good latency).
+
+### 4.3 Phase B — prompt ablation (120 goals, fixed ACJ models)
+
+After locking models to **`llama3.1:8b | qwen2.5:7b-instruct | qwen2.5:7b-instruct`**, the next axis is **`prompt_style`** only (same cached specialist inputs, `prompt_version=v1`).
+
+- **Snapshot**: `38710839ca6e1009`
+- **Cached specialist inputs**:
+  - `copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_122444/specialist_inputs.jsonl`
+- **Replay outputs** (one folder per style):
+  - `.../prompt_ablation_llama_qwen_qwen/zero_shot_json_v1/summary.json`
+  - `.../prompt_ablation_llama_qwen_qwen/few_shot_json_v1/summary.json`
+  - `.../prompt_ablation_llama_qwen_qwen/structured_rationale_v1/summary.json`
+  - `.../prompt_ablation_llama_qwen_qwen/cot_hidden_v1/summary.json`
+
+#### Results (`n=120` per style)
+
+| prompt_style | ok_rate | conflict_detection | decision_justification | constraint_respect | latency_s_mean |
+|---|---:|---:|---:|---:|---:|
+| zero_shot_json | 1.00 | 0.758 | 0.975 | 0.746 | 20.9 |
+| few_shot_json | 1.00 | 0.592 | 0.994 | **0.964** | 21.0 |
+| structured_rationale | 1.00 | 0.750 | 0.983 | 0.799 | 21.1 |
+| cot_hidden | 1.00 | 0.733 | 0.953 | 0.847 | 7.8 |
+
+`json_valid` and `grounded_ids` were **1.00** for all four.
+
+**Interpretation:** few-shot JSON improves **constraint_respect** at the cost of **conflict_detection** on this rubric; zero-shot is best on conflict; structured rationale is a middle path. **cot_hidden** (private step-by-step, JSON-only output) sits between zero-shot and few-shot on constraints and conflict, with slightly lower **decision_justification** than few-shot. **Latency** for the first three rows (~21 s/run) was measured in one session; **cot_hidden** was replayed in a separate run (~7.8 s/run) and is **not** directly comparable for timing—use rubric columns for cross-style comparison.
+
+**Demo default:** **`few_shot_json` + `v1`** (set in the orchestrator server via `COPILOT_V2_ACJ_PROMPT_STYLE` / `COPILOT_V2_ACJ_PROMPT_VERSION`, overridable per request). Absolute **latency_s_mean** across prompt styles is only comparable in a single back-to-back session; rubric columns are the fair cross-style comparison.
+
+---
+
+## 5. Changelog
 
 | Date (UTC) | Change |
 |------------|--------|
+| 2026-04-15 | Debate §4.3: **Phase B prompt ablation** (120 goals, fixed ACJ models) including **`cot_hidden`**; demo default **`few_shot_json` / `v1`** via server env. |
 | 2026-04-03 | Registry timestamp for retrieval + pricing. |
 | 2026-04-03 | Replaced link-out summary with **full inline tables** (screen / refine / final) and **explicit winner rationale** per agent. |
 | 2026-04-04 | **Qwen2.5-1.5B-Instruct** full **10k** eval (`metrics_qwen_slice_10k.json`); sentiment §3 updated (DeBERTa fp32 outcome, VADER vs Qwen pick). |

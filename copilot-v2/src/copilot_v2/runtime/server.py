@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 from copilot_v2.llm.ollama_client import OllamaClient
-from copilot_v2.runtime.debate import DebateConfig, run_chain_of_debate_safe
+from copilot_v2.runtime.debate import (
+    DebateACJConfig,
+    DebateConfig,
+    run_advocate_critic_judge_safe,
+    run_chain_of_debate_safe,
+)
 from copilot_v2.runtime.orchestrator import (
     OrchestratorConfig,
     OrchestratorContext,
@@ -19,6 +25,8 @@ from copilot_v2.runtime.orchestrator import (
     _read_registry,
     build_ranked_plans,
 )
+
+_ACJ_PROMPT_STYLES = frozenset({"zero_shot_json", "few_shot_json", "cot_hidden", "structured_rationale"})
 
 
 class _State:
@@ -117,6 +125,20 @@ class Handler(BaseHTTPRequestHandler):
 
             use_llm_policy = bool(body.get("use_llm_policy", False))
             llm_model = str(body.get("llm_model") or "qwen2.5:7b-instruct")
+            debate_mode = str(body.get("debate_mode") or "acj").strip().lower()
+            advocate_model = str(body.get("advocate_model") or llm_model)
+            critic_model = str(body.get("critic_model") or llm_model)
+            judge_model = str(body.get("judge_model") or llm_model)
+            prompt_style = str(
+                body.get("prompt_style")
+                or os.environ.get("COPILOT_V2_ACJ_PROMPT_STYLE")
+                or "few_shot_json"
+            ).strip()
+            if prompt_style not in _ACJ_PROMPT_STYLES:
+                prompt_style = "few_shot_json"
+            prompt_version = str(
+                body.get("prompt_version") or os.environ.get("COPILOT_V2_ACJ_PROMPT_VERSION") or "v1"
+            ).strip() or "v1"
             debate_top_k = int(body.get("debate_top_k") or min(3, top_n_actions))
             candidate_m = int(body.get("candidate_m") or 20)
 
@@ -159,14 +181,32 @@ class Handler(BaseHTTPRequestHandler):
             debate_trace = None
             if use_llm_policy and _State.ollama is not None and baseline_actions:
                 candidates = baseline_actions[: max(3, candidate_m)]
-                acts, trace, err = run_chain_of_debate_safe(
-                    ollama=_State.ollama,
-                    cfg=DebateConfig(model=llm_model, top_k=debate_top_k, candidate_m=candidate_m),
-                    goal=goal,
-                    constraints=constraints or {},
-                    candidates=candidates,
-                    baseline_actions=baseline_actions[: debate_top_k],
-                )
+                if debate_mode == "legacy":
+                    acts, trace, err = run_chain_of_debate_safe(
+                        ollama=_State.ollama,
+                        cfg=DebateConfig(model=llm_model, top_k=debate_top_k, candidate_m=candidate_m),
+                        goal=goal,
+                        constraints=constraints or {},
+                        candidates=candidates,
+                        baseline_actions=baseline_actions[: debate_top_k],
+                    )
+                else:
+                    acts, trace, err = run_advocate_critic_judge_safe(
+                        ollama=_State.ollama,
+                        cfg=DebateACJConfig(
+                            advocate_model=advocate_model,
+                            critic_model=critic_model,
+                            judge_model=judge_model,
+                            prompt_style=prompt_style,
+                            prompt_version=prompt_version,
+                            top_k=debate_top_k,
+                            candidate_m=candidate_m,
+                        ),
+                        goal=goal,
+                        constraints=constraints or {},
+                        candidates=candidates,
+                        baseline_actions=baseline_actions[: debate_top_k],
+                    )
                 debate_trace = trace
                 if acts is not None and err is None:
                     by_pid = {str(a.get("product_id")): a for a in baseline_actions}
@@ -184,6 +224,12 @@ class Handler(BaseHTTPRequestHandler):
                     # surface candidate IDs for debugging
                     if isinstance(debate_trace, dict):
                         debate_trace["allowed_candidate_ids"] = [str(c.get("product_id")) for c in candidates if c.get("product_id")]
+                        debate_trace["debate_mode"] = debate_mode
+                        debate_trace["advocate_model"] = advocate_model
+                        debate_trace["critic_model"] = critic_model
+                        debate_trace["judge_model"] = judge_model
+                        debate_trace["prompt_style"] = prompt_style
+                        debate_trace["prompt_version"] = prompt_version
 
             out["baseline_ranked_actions"] = baseline_actions
             out["ranked_actions"] = final_actions

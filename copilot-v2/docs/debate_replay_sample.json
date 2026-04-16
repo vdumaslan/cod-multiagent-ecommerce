@@ -1,0 +1,854 @@
+{
+  "meta": {
+    "description": "Full specialist_inputs rows from debate replay cache (same shape as cache_specialist_outputs.py output). Use `samples` for UI mocks.",
+    "source_cache": "copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/20260415_122444/specialist_inputs.jsonl",
+    "snapshot_id": "38710839ca6e1009",
+    "owner_id": "store_00",
+    "count": 3
+  },
+  "samples": [
+    {
+      "schema_version": 1,
+      "snapshot_id": "38710839ca6e1009",
+      "owner_id": "store_00",
+      "goal": "increase revenue while protecting margin over the next week",
+      "constraints": {},
+      "candidates": [
+        {
+          "product_id": "B0B6GQJV8S",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 143.0,
+            "mean_daily_revenue": 21.956398661465432,
+            "total_returns": 2.0,
+            "on_hand_units": 164.0,
+            "safety_stock_units": 21.0
+          },
+          "evidence": {
+            "retrieval_score": 0.8412087244502844,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: MANGZ Bed Risers, 3 Inch Heavy Duty Furniture Risers, Suitable for Beds Desks Sofa Tables and Chairs Lift, Anti Slip Rubber Pad, Supports up to 10000 Lbs, 4 Pack brand: MANGZ category: Amazon Home subcategory: Bed Risers price_usd: 16.89 avg_rating: 4.5 rating_count: 25 description: Plastic 【Creates Extra Sto...",
+                "score": 0.8412087244502844
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 164.0,
+              "safety_stock_units": 21.0,
+              "available_to_sell": 143.0,
+              "mean_daily_revenue": 21.956398661465432,
+              "total_returns": 2.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B00APEZP2Y",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 133.0,
+            "mean_daily_revenue": 21.47688876776509,
+            "total_returns": 3.0,
+            "on_hand_units": 149.0,
+            "safety_stock_units": 16.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7774170425759762,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: Slipstick CB656 5 Inch Incline Bed Risers for Acid Reflux / GERD Relief (Set of 2 Risers and 2 Non Slip Rubber Protector Pads) White brand: Slipstick category: Tools & Home Improvement subcategory: Bed Risers avg_rating: 3.8 rating_count: 157 description: Product Description Used to elevate the head and chest...",
+                "score": 0.7774170425759762
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 149.0,
+              "safety_stock_units": 16.0,
+              "available_to_sell": 133.0,
+              "mean_daily_revenue": 21.47688876776509,
+              "total_returns": 3.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B099FJZVRM",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 203.0,
+            "mean_daily_revenue": 27.410268015095596,
+            "total_returns": 3.0,
+            "on_hand_units": 231.0,
+            "safety_stock_units": 28.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7737808899494405,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: RELAX SUPPORT RS7-X Lumbar Support Pillow - Medium Firm Memory Foam Office Chair Back Support - Promotes Spinal Alignment & Better Posture - Non-Slip Strap, Washable Cover - Fits Wheelchair, Recliner brand: RELAX SUPPORT category: Amazon Home subcategory: Amazon Home price_usd: 27.99 avg_rating: 4.2 rating_co...",
+                "score": 0.7737808899494405
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 231.0,
+              "safety_stock_units": 28.0,
+              "available_to_sell": 203.0,
+              "mean_daily_revenue": 27.410268015095596,
+              "total_returns": 3.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        }
+      ],
+      "baseline_actions": [
+        {
+          "product_id": "B0B6GQJV8S",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 143.0,
+            "mean_daily_revenue": 21.956398661465432,
+            "total_returns": 2.0,
+            "on_hand_units": 164.0,
+            "safety_stock_units": 21.0
+          },
+          "evidence": {
+            "retrieval_score": 0.8412087244502844,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: MANGZ Bed Risers, 3 Inch Heavy Duty Furniture Risers, Suitable for Beds Desks Sofa Tables and Chairs Lift, Anti Slip Rubber Pad, Supports up to 10000 Lbs, 4 Pack brand: MANGZ category: Amazon Home subcategory: Bed Risers price_usd: 16.89 avg_rating: 4.5 rating_count: 25 description: Plastic 【Creates Extra Sto...",
+                "score": 0.8412087244502844
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 164.0,
+              "safety_stock_units": 21.0,
+              "available_to_sell": 143.0,
+              "mean_daily_revenue": 21.956398661465432,
+              "total_returns": 2.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B00APEZP2Y",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 133.0,
+            "mean_daily_revenue": 21.47688876776509,
+            "total_returns": 3.0,
+            "on_hand_units": 149.0,
+            "safety_stock_units": 16.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7774170425759762,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: Slipstick CB656 5 Inch Incline Bed Risers for Acid Reflux / GERD Relief (Set of 2 Risers and 2 Non Slip Rubber Protector Pads) White brand: Slipstick category: Tools & Home Improvement subcategory: Bed Risers avg_rating: 3.8 rating_count: 157 description: Product Description Used to elevate the head and chest...",
+                "score": 0.7774170425759762
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 149.0,
+              "safety_stock_units": 16.0,
+              "available_to_sell": 133.0,
+              "mean_daily_revenue": 21.47688876776509,
+              "total_returns": 3.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B099FJZVRM",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 203.0,
+            "mean_daily_revenue": 27.410268015095596,
+            "total_returns": 3.0,
+            "on_hand_units": 231.0,
+            "safety_stock_units": 28.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7737808899494405,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: RELAX SUPPORT RS7-X Lumbar Support Pillow - Medium Firm Memory Foam Office Chair Back Support - Promotes Spinal Alignment & Better Posture - Non-Slip Strap, Washable Cover - Fits Wheelchair, Recliner brand: RELAX SUPPORT category: Amazon Home subcategory: Amazon Home price_usd: 27.99 avg_rating: 4.2 rating_co...",
+                "score": 0.7737808899494405
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 231.0,
+              "safety_stock_units": 28.0,
+              "available_to_sell": 203.0,
+              "mean_daily_revenue": 27.410268015095596,
+              "total_returns": 3.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        }
+      ],
+      "trace": {
+        "snapshot_id": "38710839ca6e1009",
+        "owner_id": "store_00",
+        "retrieval_index_meta": "copilot-v2/artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/index_meta.json",
+        "pricing": {
+          "wired": false,
+          "source": "none"
+        },
+        "sentiment": {
+          "wired": false,
+          "source": "none"
+        },
+        "demo_allowlist_size": 0,
+        "inventory": {
+          "wired": true,
+          "mode": "rules_v1"
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "snapshot_id": "38710839ca6e1009",
+      "owner_id": "store_00",
+      "goal": "reduce returns without sacrificing revenue",
+      "constraints": {},
+      "candidates": [
+        {
+          "product_id": "B07Z9W8NBV",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 755.0,
+            "mean_daily_revenue": 91.52738132971503,
+            "total_returns": 5.0,
+            "on_hand_units": 880.0,
+            "safety_stock_units": 125.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7887651822305611,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: PINSOON 10-Quart Air Fryer, Rotisserie Shaft & Layer Racks & Nonstick Basket, Electric Hot Air Fryer Oven Oilless Cooker, 12 Accessories, 8 Cooking Presets, LED Digital Touchscreen 50 Recipes brand: PINSOON category: Amazon Home subcategory: Air Fryers avg_rating: 4.3 rating_count: 471 description: Full Range...",
+                "score": 0.7887651822305611
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 880.0,
+              "safety_stock_units": 125.0,
+              "available_to_sell": 755.0,
+              "mean_daily_revenue": 91.52738132971503,
+              "total_returns": 5.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B06XVX1X42",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 302.0,
+            "mean_daily_revenue": 25.926289719102094,
+            "total_returns": 1.0,
+            "on_hand_units": 358.0,
+            "safety_stock_units": 56.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7591811514116347,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: reduce WaterWeek Kids Reusable Water Bottle Set with Fridge Tray Organizer – 5 Pack, 10oz – BPA-free, Leak Proof Twist Off Cap – Assorted Colors - Perfect for Lunchboxes brand: REDUCE category: Amazon Home subcategory: Amazon Home avg_rating: 4.6 rating_count: 527 description: Say goodbye to single use plasti...",
+                "score": 0.7591811514116347
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 358.0,
+              "safety_stock_units": 56.0,
+              "available_to_sell": 302.0,
+              "mean_daily_revenue": 25.926289719102094,
+              "total_returns": 1.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B07BYVZWBM",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 1632.0,
+            "mean_daily_revenue": 176.80174585015155,
+            "total_returns": 2.0,
+            "on_hand_units": 1773.0,
+            "safety_stock_units": 141.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: Target Marketing Systems Reflections Buffet/Console with Mirror, Black brand: Target Marketing Systems category: Amazon Home subcategory: Buffets & Sideboards avg_rating: 4.3 rating_count: 108 description: The Greek letter \"chi\" graces each reflected entryway of the Target Marketing Systems reflections buffet...",
+                "score": 0.7
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 1773.0,
+              "safety_stock_units": 141.0,
+              "available_to_sell": 1632.0,
+              "mean_daily_revenue": 176.80174585015155,
+              "total_returns": 2.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        }
+      ],
+      "baseline_actions": [
+        {
+          "product_id": "B07Z9W8NBV",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 755.0,
+            "mean_daily_revenue": 91.52738132971503,
+            "total_returns": 5.0,
+            "on_hand_units": 880.0,
+            "safety_stock_units": 125.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7887651822305611,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: PINSOON 10-Quart Air Fryer, Rotisserie Shaft & Layer Racks & Nonstick Basket, Electric Hot Air Fryer Oven Oilless Cooker, 12 Accessories, 8 Cooking Presets, LED Digital Touchscreen 50 Recipes brand: PINSOON category: Amazon Home subcategory: Air Fryers avg_rating: 4.3 rating_count: 471 description: Full Range...",
+                "score": 0.7887651822305611
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 880.0,
+              "safety_stock_units": 125.0,
+              "available_to_sell": 755.0,
+              "mean_daily_revenue": 91.52738132971503,
+              "total_returns": 5.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B06XVX1X42",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 302.0,
+            "mean_daily_revenue": 25.926289719102094,
+            "total_returns": 1.0,
+            "on_hand_units": 358.0,
+            "safety_stock_units": 56.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7591811514116347,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: reduce WaterWeek Kids Reusable Water Bottle Set with Fridge Tray Organizer – 5 Pack, 10oz – BPA-free, Leak Proof Twist Off Cap – Assorted Colors - Perfect for Lunchboxes brand: REDUCE category: Amazon Home subcategory: Amazon Home avg_rating: 4.6 rating_count: 527 description: Say goodbye to single use plasti...",
+                "score": 0.7591811514116347
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 358.0,
+              "safety_stock_units": 56.0,
+              "available_to_sell": 302.0,
+              "mean_daily_revenue": 25.926289719102094,
+              "total_returns": 1.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B07BYVZWBM",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 1632.0,
+            "mean_daily_revenue": 176.80174585015155,
+            "total_returns": 2.0,
+            "on_hand_units": 1773.0,
+            "safety_stock_units": 141.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: Target Marketing Systems Reflections Buffet/Console with Mirror, Black brand: Target Marketing Systems category: Amazon Home subcategory: Buffets & Sideboards avg_rating: 4.3 rating_count: 108 description: The Greek letter \"chi\" graces each reflected entryway of the Target Marketing Systems reflections buffet...",
+                "score": 0.7
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 1773.0,
+              "safety_stock_units": 141.0,
+              "available_to_sell": 1632.0,
+              "mean_daily_revenue": 176.80174585015155,
+              "total_returns": 2.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        }
+      ],
+      "trace": {
+        "snapshot_id": "38710839ca6e1009",
+        "owner_id": "store_00",
+        "retrieval_index_meta": "copilot-v2/artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/index_meta.json",
+        "pricing": {
+          "wired": false,
+          "source": "none"
+        },
+        "sentiment": {
+          "wired": false,
+          "source": "none"
+        },
+        "demo_allowlist_size": 0,
+        "inventory": {
+          "wired": true,
+          "mode": "rules_v1"
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "snapshot_id": "38710839ca6e1009",
+      "owner_id": "store_00",
+      "goal": "increase conversion rate for top categories",
+      "constraints": {},
+      "candidates": [
+        {
+          "product_id": "B08CPQXVYL",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 203.0,
+            "mean_daily_revenue": 18.003329868818334,
+            "total_returns": 0.0,
+            "on_hand_units": 233.0,
+            "safety_stock_units": 30.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: L'Occitane Signature Holiday Advent Calendar category: Premium Beauty subcategory: Advent Calendars avg_rating: 4.5 rating_count: 695",
+                "score": 0.7
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 233.0,
+              "safety_stock_units": 30.0,
+              "available_to_sell": 203.0,
+              "mean_daily_revenue": 18.003329868818334,
+              "total_returns": 0.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B07Y84LZPR",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 309.0,
+            "mean_daily_revenue": 60.52120515155456,
+            "total_returns": 4.0,
+            "on_hand_units": 346.0,
+            "safety_stock_units": 37.0
+          },
+          "evidence": {
+            "retrieval_score": 0.6867027631996854,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: TOPNEW Storage Bean Bag Animal Stuffed Storage Chair, Plush Animal Toys Canvas Organizer, Pillow Clothes Stuffed Storage Bag No Stuffing (Blue Shark) brand: TOPNEW category: Amazon Home subcategory: Bean Bags avg_rating: 4.1 rating_count: 332",
+                "score": 0.6867027631996854
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 346.0,
+              "safety_stock_units": 37.0,
+              "available_to_sell": 309.0,
+              "mean_daily_revenue": 60.52120515155456,
+              "total_returns": 4.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B07YFQ7PF9",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 191.0,
+            "mean_daily_revenue": 24.10034637610092,
+            "total_returns": 1.0,
+            "on_hand_units": 234.0,
+            "safety_stock_units": 43.0
+          },
+          "evidence": {
+            "retrieval_score": 0.5465972526608259,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: Gocheer Cool Mist Humidifier Ultrasonic Humidifiers for Bedroom Large Room brand: Gocheer category: Amazon Home subcategory: Amazon Home avg_rating: 4.3 rating_count: 864 description: 20 adjustable speed level with indicator touch LED screen",
+                "score": 0.5465972526608259
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 234.0,
+              "safety_stock_units": 43.0,
+              "available_to_sell": 191.0,
+              "mean_daily_revenue": 24.10034637610092,
+              "total_returns": 1.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        }
+      ],
+      "baseline_actions": [
+        {
+          "product_id": "B08CPQXVYL",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 203.0,
+            "mean_daily_revenue": 18.003329868818334,
+            "total_returns": 0.0,
+            "on_hand_units": 233.0,
+            "safety_stock_units": 30.0
+          },
+          "evidence": {
+            "retrieval_score": 0.7,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: L'Occitane Signature Holiday Advent Calendar category: Premium Beauty subcategory: Advent Calendars avg_rating: 4.5 rating_count: 695",
+                "score": 0.7
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 233.0,
+              "safety_stock_units": 30.0,
+              "available_to_sell": 203.0,
+              "mean_daily_revenue": 18.003329868818334,
+              "total_returns": 0.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B07Y84LZPR",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 309.0,
+            "mean_daily_revenue": 60.52120515155456,
+            "total_returns": 4.0,
+            "on_hand_units": 346.0,
+            "safety_stock_units": 37.0
+          },
+          "evidence": {
+            "retrieval_score": 0.6867027631996854,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: TOPNEW Storage Bean Bag Animal Stuffed Storage Chair, Plush Animal Toys Canvas Organizer, Pillow Clothes Stuffed Storage Bag No Stuffing (Blue Shark) brand: TOPNEW category: Amazon Home subcategory: Bean Bags avg_rating: 4.1 rating_count: 332",
+                "score": 0.6867027631996854
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 346.0,
+              "safety_stock_units": 37.0,
+              "available_to_sell": 309.0,
+              "mean_daily_revenue": 60.52120515155456,
+              "total_returns": 4.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        },
+        {
+          "product_id": "B07YFQ7PF9",
+          "action_type": "reprice",
+          "recommended_price_change_pct": 0.0,
+          "pricing": {
+            "source": "none"
+          },
+          "sentiment": {},
+          "signals": {
+            "margin_pct": 0.0,
+            "available_to_sell": 191.0,
+            "mean_daily_revenue": 24.10034637610092,
+            "total_returns": 1.0,
+            "on_hand_units": 234.0,
+            "safety_stock_units": 43.0
+          },
+          "evidence": {
+            "retrieval_score": 0.5465972526608259,
+            "points": [
+              {
+                "type": "retrieval_doc",
+                "text": "title: Gocheer Cool Mist Humidifier Ultrasonic Humidifiers for Bedroom Large Room brand: Gocheer category: Amazon Home subcategory: Amazon Home avg_rating: 4.3 rating_count: 864 description: 20 adjustable speed level with indicator touch LED screen",
+                "score": 0.5465972526608259
+              }
+            ]
+          },
+          "horizon_days": 7,
+          "inventory": {
+            "stock_status": "healthy",
+            "risk_flag": false,
+            "signals": {
+              "on_hand_units": 234.0,
+              "safety_stock_units": 43.0,
+              "available_to_sell": 191.0,
+              "mean_daily_revenue": 24.10034637610092,
+              "total_returns": 1.0
+            },
+            "rules_fired": [
+              "healthy:default"
+            ]
+          }
+        }
+      ],
+      "trace": {
+        "snapshot_id": "38710839ca6e1009",
+        "owner_id": "store_00",
+        "retrieval_index_meta": "copilot-v2/artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/index_meta.json",
+        "pricing": {
+          "wired": false,
+          "source": "none"
+        },
+        "sentiment": {
+          "wired": false,
+          "source": "none"
+        },
+        "demo_allowlist_size": 0,
+        "inventory": {
+          "wired": true,
+          "mode": "rules_v1"
+        }
+      }
+    }
+  ]
+}
