@@ -3,6 +3,8 @@
 React + Tailwind frontend for the multi-agent BI demo.  
 This UI calls a local Python API (`copilot_v2.apps.ui_api`) that simulates agent/model behavior with placeholder outputs.
 
+Assumption: commands in this README are run from the repository root (`cod-multiagent-ecommerce/`) unless stated otherwise.
+
 ## What this demo shows
 
 - Query input and loading flow
@@ -55,7 +57,8 @@ py -V
 From `copilot-v2`:
 
 ```powershell
-cd "C:\Users\Victor Dumaslan\Documents\GitHub\cod-multiagent-ecommerce\copilot-v2"
+# from repository root:
+# cd copilot-v2
 $env:PYTHONPATH="src"
 py -m copilot_v2.apps.ui_api_server
 ```
@@ -67,7 +70,8 @@ Expected startup output includes host `127.0.0.1` and port `8010`.
 From `copilot-v2/src/ui`:
 
 ```powershell
-cd "C:\Users\Victor Dumaslan\Documents\GitHub\cod-multiagent-ecommerce\copilot-v2\src\ui"
+# from repository root:
+# cd copilot-v2/src/ui
 npm install
 npm run dev
 ```
