@@ -32,3 +32,8 @@ copilot-v2/data/
 copilot-v2/logs/
 copilot-v2/src/copilot_v2.egg-info/
 
+# Frontend build/dependency artifacts
+node_modules/
+dist/
+.vite/
+
