@@ -215,6 +215,118 @@ Add your shared links here (project-specific):
 - Grounding caches: `<PASTE_LINK_HERE>`
 - Model artifacts: `<PASTE_LINK_HERE>`
 
+### Full cache handoff (teammate quick start)
+
+Before running backend/UI, teammates should **download the full cache from Google Drive** (shared in the links above), then unpack it into this repo.
+
+#### Quick Start (3 terminals)
+
+```bash
+# Terminal 1: backend
+cd /path/to/cod-multiagent-ecommerce
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+  --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts \
+  --grounding-cache-dir copilot-v2/artifacts/caches/38710839ca6e1009 \
+  --host 127.0.0.1 \
+  --port 8008
+```
+
+```bash
+# Terminal 2: UI
+cd /path/to/cod-multiagent-ecommerce/copilot-v2/src/ui
+npm install
+npm run dev
+```
+
+```bash
+# Terminal 3: API sanity check
+curl -s http://127.0.0.1:8008/health
+curl -sS -X POST http://127.0.0.1:8008/orchestrate \
+  -H 'Content-Type: application/json' \
+  -d '{"owner_id":"store_00","goal":"increase profit next 14 days with minimal risk","enable_pricing":true,"enable_sentiment":true,"use_llm_policy":true,"debate_mode":"acj","advocate_model":"qwen2.5:7b-instruct","critic_model":"qwen2.5:7b-instruct","judge_model":"qwen2.5:7b-instruct","top_n_actions":3}' \
+  | python3 -m json.tool
+```
+
+Expected:
+- health reports `"ok": true`, `"has_pricing_cache": true`, `"has_sentiment_cache": true`
+- orchestrate response includes `ranked_actions` and `debate_trace.debate_mode = "acj"`
+
+Expected full cache files after download:
+- `copilot-v2/artifacts/caches/38710839ca6e1009/pricing/pricing_cache.parquet`
+- `copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.parquet`
+
+Optional JSON companions (if included in the Drive package):
+- `copilot-v2/artifacts/caches/38710839ca6e1009/pricing/pricing_cache.json`
+- `copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.json`
+
+#### A) Teammate machine: download and unpack
+
+```bash
+cd /path/to/cod-multiagent-ecommerce
+mkdir -p copilot-v2/artifacts/caches
+tar -xzf /path/to/copilot-v2-cache-38710839ca6e1009.tar.gz -C copilot-v2/artifacts/caches
+```
+
+3. Verify paths:
+
+```bash
+ls -lh copilot-v2/artifacts/caches/38710839ca6e1009/pricing/pricing_cache.parquet
+ls -lh copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.parquet
+```
+
+#### B) Run backend pipeline with full caches
+
+```bash
+# terminal 1 (repo root)
+cd /path/to/cod-multiagent-ecommerce
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+  --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts \
+  --grounding-cache-dir copilot-v2/artifacts/caches/38710839ca6e1009 \
+  --host 127.0.0.1 \
+  --port 8008
+```
+
+Health check (terminal 2):
+
+```bash
+curl -s http://127.0.0.1:8008/health
+```
+
+Expected health fields:
+- `"ok": true`
+- `"has_pricing_cache": true`
+- `"has_sentiment_cache": true`
+
+#### C) Run UI (React + Vite proxy)
+
+```bash
+# terminal 2
+cd /path/to/cod-multiagent-ecommerce/copilot-v2/src/ui
+npm install
+npm run dev
+```
+
+Open the printed URL (usually `http://127.0.0.1:5173`).
+
+The dev UI proxies `/health` and `/orchestrate` to `http://127.0.0.1:8008`.
+Keep the backend server running while the UI is open.
+
+#### D) End-to-end API smoke test (optional but recommended)
+
+```bash
+curl -sS -X POST http://127.0.0.1:8008/orchestrate \
+  -H 'Content-Type: application/json' \
+  -d '{"owner_id":"store_00","goal":"increase profit next 14 days with minimal risk","enable_pricing":true,"enable_sentiment":true,"use_llm_policy":true,"debate_mode":"acj","advocate_model":"qwen2.5:7b-instruct","critic_model":"qwen2.5:7b-instruct","judge_model":"qwen2.5:7b-instruct","top_n_actions":3}' \
+  | python3 -m json.tool
+```
+
+In successful responses, confirm:
+- `ranked_actions` exists (target: 3 actions).
+- each action has `pricing.source` as `cache` or `fallback` (not `none` when pricing is enabled).
+- `debate_trace.debate_mode` is `acj` when `use_llm_policy=true`.
+
 ---
 
 ## Runtime workflow (request → response)
