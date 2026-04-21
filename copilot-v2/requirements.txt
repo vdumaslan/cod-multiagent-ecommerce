@@ -1,0 +1,17 @@
+# Core data + retrieval runtime
+numpy
+pandas
+pyarrow
+scikit-learn
+faiss-cpu
+sentence-transformers
+
+# Model/training stack used by scripts
+torch
+transformers
+datasets
+accelerate
+
+# Pricing tuning lanes
+tabpfn
+catboost
