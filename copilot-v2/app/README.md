@@ -1,6 +1,6 @@
 # copilot-v2 / app
 
-This directory contains the runtime application layer for the seller copilot — the specialist agents, debate orchestrator, precompute pipeline, API, and UI.
+This directory contains the runtime application layer for the seller copilot — the specialist agents, debate orchestrator, API, and UI.
 
 ---
 
@@ -19,11 +19,6 @@ app/
 │       ├── judge.py
 │       ├── human_review.py
 │       └── orchestrator.py
-├── precompute/              # Offline jobs — run once to build caches
-│   ├── build_pricing_features.py   # (not yet active) joins raw files for full coverage
-│   ├── precompute_pricing.py       # TabPFN inference → pricing cache
-│   ├── precompute_sentiment.py     # DistilRoBERTa inference → sentiment cache
-│   └── precompute_inventory.py     # Rule-based classification → inventory cache
 ├── api/                     # FastAPI server
 │   ├── app.py
 │   └── schemas.py
@@ -31,6 +26,8 @@ app/
 ├── pipeline.py              # Main entry point wiring all agents together
 └── APP_IMPLEMENTATION.md    # Detailed implementation notes and known gaps
 ```
+
+**Precompute scripts** live in `src/copilot_v2/scripts/precompute/` — not in this directory.
 
 ---
 
@@ -40,7 +37,7 @@ The system has two phases:
 
 **Offline (precompute) — run once**
 ```
-Raw parquet files → precompute scripts → caches in artifacts/caches/
+Raw parquet files → src/copilot_v2/scripts/precompute/ → caches in artifacts/caches/
 ```
 
 **Runtime — on every user query**
@@ -68,23 +65,34 @@ Set via env vars: `COPILOT_V2_ACJ_PROMPT_STYLE`, `COPILOT_V2_ACJ_PROMPT_VERSION`
 
 ## Running the Precompute Pipeline
 
-Run these once before starting the server. The inventory cache does not exist yet and must be generated first.
+All precompute scripts are in `src/copilot_v2/scripts/precompute/`. Run from the repo root:
 
 ```bash
-# Inventory — rule-based, no model needed, run this first
-python -m app.precompute.precompute_inventory
+# Step 1: Generate pricing labels
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_pricing_training_table \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts
 
-# Pricing — requires artifacts/models/.../tabpfn/model.tabpfn_fit.zip
-python -m app.precompute.precompute_pricing
+# Step 2: Build pricing cache (requires TabPFN model artifact + step 1 output)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_pricing_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --write-json
 
-# Sentiment — requires artifacts/models/.../distilroberta-base_final_500k_slice_winner/
-python -m app.precompute.precompute_sentiment
+# Step 3: Build sentiment cache (DistilRoBERTa model)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_sentiment_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --approach distilroberta --write-json
+# Fast fallback (star ratings, no model needed):
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_sentiment_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --approach ratings
 
-# Sentiment fast fallback (uses star ratings instead of model, for testing only)
-python -m app.precompute.precompute_sentiment --no-model
+# Step 4: Build inventory cache (rule-based, no model needed)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_inventory_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --write-json
+
+# Step 5: Build per-owner retrieval indexes
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_owner_indexes \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --device cpu
 ```
 
-The retrieval FAISS index is already built and saved at `artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` — no precompute step needed for retrieval.
+The retrieval FAISS index may already be built at `artifacts/indexes/38710839ca6e1009/` — check before running step 5.
 
 ---
 
@@ -94,7 +102,6 @@ See `APP_IMPLEMENTATION.md` for full details. Summary:
 
 | Gap | Status |
 |---|---|
-| Pricing cache covers ~50k products only | Sent to team — needs feature pipeline owner to validate `build_pricing_features.py` |
-| `recommended_price_change_pct` target missing | Sent to team — needed if TabPFN ever needs retraining |
-| Inventory cache not yet generated | Run `precompute_inventory.py` once |
+| `recommended_price_change_pct` | Not missing — computed on demand by `build_pricing_training_table.py` |
+| Inventory cache | Run `build_inventory_cache.py` once to generate |
 | Agents not wired to `pipeline.py` | Pending |

@@ -114,18 +114,40 @@ inventory_cache_manifest.json  schema_version, snapshot_id, source_skus, source_
 
 ---
 
+## Precompute Scripts (authoritative)
+
+All precompute scripts live in `src/copilot_v2/scripts/precompute/`. This is the single location for all offline cache-building steps — pricing, sentiment, inventory, and retrieval indexes.
+
+| Script | Purpose |
+|---|---|
+| `precompute/build_pricing_training_table.py` | Generates `recommended_price_change_pct` labels from `tabular_features.parquet` and writes `pricing_training_table.parquet` |
+| `precompute/build_pricing_cache.py` | Loads TabPFN model + training table, runs inference, writes `pricing_cache.parquet` to `artifacts/caches/` |
+| `precompute/build_sentiment_cache.py` | Builds `sentiment_cache.parquet` using DistilRoBERTa or star-rating fallback |
+| `precompute/build_owner_indexes.py` | Builds per-owner FAISS dense indexes for retrieval |
+| `precompute/build_inventory_cache.py` | Rule-based inventory classification, writes `inventory_cache.parquet` to `artifacts/caches/` |
+
+Cache output paths:
+- `artifacts/caches/{snapshot_id}/pricing/pricing_cache.parquet`
+- `artifacts/caches/{snapshot_id}/sentiment/sentiment_cache.parquet`
+- `artifacts/caches/{snapshot_id}/inventory/inventory_cache.parquet`
+
+The `app/precompute/` directory has been removed — `src/copilot_v2/scripts/precompute/` is now the single source of truth.
+
+---
+
 ## What Is Missing / Incomplete
 
-### `recommended_price_change_pct` target column
-The pricing model (TabPFN) was originally trained against a target column called `recommended_price_change_pct`. This column does not exist in any parquet file in the repository:
-- `tabular_features_meta.json` lists it under `target_candidates` but it was never added to `tabular_features.parquet`
-- `artifacts/evals/` directory does not exist locally — the original pricing training table (`pricing_training_table.parquet`) was never committed
+### `recommended_price_change_pct` — not missing, it is a computed label
+This column is **generated on demand** by `build_pricing_training_table.py` using a deterministic formula (elasticity-based grid search over ±10% price change candidates). It was never a raw data column — it does not need to be "recovered" from anywhere.
 
-**Impact:** `precompute_pricing.py` currently relies on the pre-saved `model.tabpfn_fit.zip` for inference. If that model file is lost or needs to be retrained from scratch, there is no target column available to re-fit TabPFN.
+To regenerate the pricing training table:
+```bash
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.build_pricing_training_table \
+  --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts
+```
 
-**Resolution options:**
-1. Recover the original `pricing_training_table.parquet` from the team and add it to `artifacts/evals/`
-2. Derive `recommended_price_change_pct` from existing signals (e.g. `positive_ratio`, `price_percentile_in_subcategory`) and add it to `tabular_features.parquet` as a new column
+This writes `artifacts/evals/{snapshot_id}/pricing/pricing_training_table.parquet`, which `build_pricing_cache.py` then reads.
 
 ### Inventory cache does not exist yet
 `artifacts/caches/{snapshot_id}/inventory/` does not exist. Unlike pricing and sentiment, the inventory cache was never precomputed. `precompute_inventory.py` must be run once to generate it before `inventory_agent.py` can be used.
@@ -140,19 +162,29 @@ The three cache-reading agents (`pricing_agent.py`, `sentiment_agent.py`, `inven
 
 ## Running the Precompute Pipeline
 
-Run in this order (inventory has no dependency on others):
+All scripts are run from the repo root with `PYTHONPATH=copilot-v2/src`. Run in this order:
 
 ```bash
-# Pricing — uses tabular_features.parquet (~50k products, same schema TabPFN was trained on)
-python -m app.precompute.precompute_pricing
+# Step 1: Generate pricing labels (required before building pricing cache)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_pricing_training_table \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts
 
-# Sentiment — uses fine-tuned DistilRoBERTa checkpoint
-python -m app.precompute.precompute_sentiment
-# Fast fallback (star ratings instead of model):
-python -m app.precompute.precompute_sentiment --no-model
+# Step 2: Build pricing cache (requires TabPFN model artifact + training table from step 1)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_pricing_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --write-json
 
-# Inventory — rule-based, no model needed
-python -m app.precompute.precompute_inventory
+# Step 3: Build sentiment cache (DistilRoBERTa model)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_sentiment_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --approach distilroberta --write-json
+# Fast fallback (star ratings, no model needed):
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_sentiment_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --approach ratings
+
+# Step 4: Build inventory cache (rule-based, no model needed — can run at any time)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_inventory_cache \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --write-json
+
+# Step 5: Build per-owner retrieval indexes (requires sentence-transformers + faiss)
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_owner_indexes \
+  --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --device cpu
 ```
-
-All scripts default to `snapshot_id=38710839ca6e1009` and resolve paths relative to the `artifacts/` directory.

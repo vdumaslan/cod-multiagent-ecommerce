@@ -76,7 +76,7 @@ The dataset snapshot does not natively include `store_id`/`owner_id`, so we crea
 ### 1) Build per-owner retrieval indexes
 
 Script:
-- `copilot-v2/src/copilot_v2/scripts/build_owner_indexes.py`
+- `copilot-v2/src/copilot_v2/scripts/precompute/build_owner_indexes.py`
 
 What it builds:
 - For each owner, a FAISS dense index + corpus parquet + index metadata at:
@@ -87,7 +87,7 @@ Command example:
 
 ```bash
 cd /path/to/cod-multiagent-ecommerce
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_owner_indexes \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_owner_indexes \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --n-owners 8 \
@@ -168,10 +168,23 @@ ls copilot-v2/artifacts/caches/38710839ca6e1009/sentiment
 ### (Optional) Build grounding caches locally (full caches)
 
 ```bash
+# Build pricing labels first (required before pricing cache).
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_pricing_training_table \
+  --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts
+
+# Build pricing cache (winner TabPFN; requires TabPFN + model artifact + step above).
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_pricing_cache \
+  --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts \
+  --device cuda \
+  --write-json
+
 # Build sentiment cache (winner DistilRoBERTa; production-like).
 # By default we cap to 24 reviews per product for speed; set --max-reviews-per-product 0 to score all reviews (slow).
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_sentiment_cache \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_sentiment_cache \
   --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts \
   --approach distilroberta \
   --device cuda \
   --batch-size 64 \
@@ -180,15 +193,16 @@ PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.buil
   --write-json
 
 # Or: build sentiment cache from ratings only (fast)
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_sentiment_cache \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_sentiment_cache \
   --snapshot-id 38710839ca6e1009 \
+  --artifacts-root copilot-v2/artifacts \
   --approach ratings \
   --write-json
 
-# Build pricing cache (winner TabPFN; requires TabPFN + model artifact).
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.build_pricing_cache \
+# Build inventory cache (rule-based, no model needed).
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_inventory_cache \
   --snapshot-id 38710839ca6e1009 \
-  --device cuda \
+  --artifacts-root copilot-v2/artifacts \
   --write-json
 ```
 

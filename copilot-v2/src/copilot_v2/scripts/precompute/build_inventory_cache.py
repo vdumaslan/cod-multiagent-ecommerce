@@ -1,10 +1,15 @@
 """Batch inventory classification over inventory_skus + sales_daily → inventory cache.
 
 Rule-based 4-class classifier: stockout_risk | low_stock | overstocked | healthy
+
 Sources:
   artifacts/synthetic/{snapshot_id}/inventory_skus.parquet  (on_hand_units, safety_stock_units)
-  artifacts/synthetic/{snapshot_id}/sales_daily.parquet     (gross_revenue_usd, units_sold, return_units)
-Output: artifacts/caches/{snapshot_id}/inventory/{inventory_cache.json, .parquet, _manifest.json}
+  artifacts/synthetic/{snapshot_id}/sales_daily.parquet     (gross_revenue_usd, return_units)
+
+Output:
+  artifacts/caches/{snapshot_id}/inventory/inventory_cache.parquet
+  artifacts/caches/{snapshot_id}/inventory/inventory_cache.json      (with --write-json)
+  artifacts/caches/{snapshot_id}/inventory/inventory_cache_manifest.json
 """
 from __future__ import annotations
 
@@ -41,11 +46,16 @@ def _classify_row(row: pd.Series) -> tuple[str, bool]:
     return "healthy", False
 
 
-def run(
-    snapshot_id: str = SNAPSHOT_ID,
-    artifacts_root: Path | None = None,
-) -> Path:
-    root = artifacts_root or Path(__file__).resolve().parents[2] / "artifacts"
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--snapshot-id", default=SNAPSHOT_ID)
+    parser.add_argument("--artifacts-root", default="copilot-v2/artifacts")
+    parser.add_argument("--write-json", action="store_true", help="Also write inventory_cache.json mapping product_id->dict.")
+    args = parser.parse_args()
+
+    root = Path(args.artifacts_root)
+    snapshot_id = str(args.snapshot_id)
+
     skus_src = root / "synthetic" / snapshot_id / "inventory_skus.parquet"
     sales_src = root / "synthetic" / snapshot_id / "sales_daily.parquet"
     out_dir = root / "caches" / snapshot_id / "inventory"
@@ -80,20 +90,15 @@ def run(
         })
 
     cache_df = pd.DataFrame(results)
-    cache_dict = {
-        r["product_id"]: {k: v for k, v in r.items() if k != "product_id"}
-        for r in results
-    }
-
-    (out_dir / "inventory_cache.json").write_text(json.dumps(cache_dict), encoding="utf-8")
-    cache_df.to_parquet(out_dir / "inventory_cache.parquet", index=False)
+    out_path = out_dir / "inventory_cache.parquet"
+    cache_df.to_parquet(out_path, index=False)
 
     manifest = {
         "schema_version": 1,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "snapshot_id": snapshot_id,
-        "source_skus": str(skus_src.as_posix()).split("cod-multiagent-ecommerce/")[-1],
-        "source_sales": str(sales_src.as_posix()).split("cod-multiagent-ecommerce/")[-1],
+        "source_skus": str(skus_src),
+        "source_sales": str(sales_src),
         "approach": "rule_based",
         "thresholds": {
             "low_stock_available_units": LOW_STOCK_AVAILABLE_UNITS,
@@ -105,17 +110,18 @@ def run(
         "rows": len(cache_df),
         "columns": list(cache_df.columns),
     }
-    (out_dir / "inventory_cache_manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    (out_dir / "inventory_cache_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    if bool(args.write_json):
+        cache_dict = {
+            r["product_id"]: {k: v for k, v in r.items() if k != "product_id"}
+            for r in results
+        }
+        (out_dir / "inventory_cache.json").write_text(json.dumps(cache_dict), encoding="utf-8")
 
     dist = cache_df["stock_status"].value_counts().to_dict()
-    print(f"Wrote {len(cache_df)} rows → {out_dir} | distribution: {dist}")
-    return out_dir
+    print(json.dumps({"ok": True, "out_dir": str(out_dir), "parquet": str(out_path), "rows": len(cache_df), "distribution": dist}))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--snapshot-id", default=SNAPSHOT_ID)
-    args = parser.parse_args()
-    run(snapshot_id=args.snapshot_id)
+    main()
