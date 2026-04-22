@@ -45,7 +45,7 @@ def run(
     snapshot_id: str = SNAPSHOT_ID,
     artifacts_root: Path | None = None,
 ) -> Path:
-    root = artifacts_root or Path(__file__).resolve().parents[3] / "artifacts"
+    root = artifacts_root or Path(__file__).resolve().parents[2] / "artifacts"
     skus_src = root / "synthetic" / snapshot_id / "inventory_skus.parquet"
     sales_src = root / "synthetic" / snapshot_id / "sales_daily.parquet"
     out_dir = root / "caches" / snapshot_id / "inventory"

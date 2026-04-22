@@ -69,7 +69,7 @@ def run(
     max_reviews: int = 0,
     use_model: bool = True,
 ) -> Path:
-    root = artifacts_root or Path(__file__).resolve().parents[3] / "artifacts"
+    root = artifacts_root or Path(__file__).resolve().parents[2] / "artifacts"
     src = root / "data_snapshots" / snapshot_id / "reviews.parquet"
     checkpoint = root / "models" / snapshot_id / "sentiment" / "distilroberta-base_final_500k_slice_winner"
     out_dir = root / "caches" / snapshot_id / "sentiment"

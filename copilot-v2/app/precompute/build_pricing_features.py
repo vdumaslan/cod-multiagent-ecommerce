@@ -27,7 +27,7 @@ def run(
     snapshot_id: str = SNAPSHOT_ID,
     artifacts_root: Path | None = None,
 ) -> Path:
-    root = artifacts_root or Path(__file__).resolve().parents[3] / "artifacts"
+    root = artifacts_root or Path(__file__).resolve().parents[2] / "artifacts"
     snap = root / "data_snapshots" / snapshot_id
     syn = root / "synthetic" / snapshot_id
     out_path = root / "features" / snapshot_id / "pricing_features.parquet"

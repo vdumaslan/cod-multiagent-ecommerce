@@ -45,8 +45,11 @@ Each agent uses a purpose-built parquet file to avoid cross-pipeline contaminati
 
 ### `agents/retrieval_agent.py`
 - `RetrievalConfig` dataclass holding the winning model config (`e5-large-v2`, `max_seq_length=384`, `use_prefixes=True`, `top_k=10`)
-- `RetrievalAgent` class with `build_index(corpus)` and `retrieve(query)` methods
-- Encodes corpus using sentence-transformers, builds an in-memory FAISS index
+- `RetrievalAgent` class with three methods:
+  - `load_index()` — loads the pre-built FAISS index from `artifacts/indexes/{snapshot_id}/dense/intfloat_e5-large-v2/` (fast, seconds). Returns `True` if successful. **This is the normal startup path.**
+  - `build_index(corpus, save=True)` — encodes the full corpus and builds a new FAISS index. Saves to disk automatically. Only needed when the product catalog or model changes.
+  - `retrieve(query)` — encodes the user query (fast, single text) and searches the index for top-k results
+- The pre-built index already exists in the repo (`index_flatip.faiss`, `corpus.parquet`, `doc_emb_norm_f32.npy`, `index_meta.json`), so `load_index()` succeeds immediately on first startup with no encoding required
 - Applies `"query: "` / `"passage: "` prefixes at encode time per the e5 model spec
 
 ### `precompute/precompute_pricing.py`
@@ -127,8 +130,8 @@ The pricing model (TabPFN) was originally trained against a target column called
 ### Inventory cache does not exist yet
 `artifacts/caches/{snapshot_id}/inventory/` does not exist. Unlike pricing and sentiment, the inventory cache was never precomputed. `precompute_inventory.py` must be run once to generate it before `inventory_agent.py` can be used.
 
-### Retrieval agent index not wired to a persistent store
-`RetrievalAgent.build_index()` builds an in-memory FAISS index at runtime. There is no logic to save or load a pre-built index from disk. For production use, the index should be serialized to `artifacts/indexes/{snapshot_id}/dense/intfloat_e5-large-v2/` (that directory already exists with a `corpus.parquet` inside).
+### Retrieval agent index persistence *(resolved)*
+`RetrievalAgent` now loads the pre-built FAISS index from disk via `load_index()`. The index files already exist at `artifacts/indexes/{snapshot_id}/dense/intfloat_e5-large-v2/`. `build_index()` is only needed when the catalog or model changes.
 
 ### Agents not wired to the orchestrator
 The three cache-reading agents (`pricing_agent.py`, `sentiment_agent.py`, `inventory_agent.py`) and the retrieval agent are standalone classes. They are not yet connected to `pipeline.py` or the debate orchestrator in `src/copilot_v2/runtime/`.

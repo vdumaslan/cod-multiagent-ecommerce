@@ -10,7 +10,7 @@ SNAPSHOT_ID = "38710839ca6e1009"
 
 class InventoryAgent:
     def __init__(self, snapshot_id: str = SNAPSHOT_ID, artifacts_root: Path | None = None) -> None:
-        root = artifacts_root or Path(__file__).resolve().parents[3] / "artifacts"
+        root = artifacts_root or Path(__file__).resolve().parents[2] / "artifacts"
         cache_path = root / "caches" / snapshot_id / "inventory" / "inventory_cache.parquet"
         if not cache_path.exists():
             raise FileNotFoundError(f"Inventory cache not found at {cache_path}. Run precompute_inventory.py first.")

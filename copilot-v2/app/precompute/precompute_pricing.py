@@ -40,7 +40,7 @@ def run(
     snapshot_id: str = SNAPSHOT_ID,
     artifacts_root: Path | None = None,
 ) -> Path:
-    root = artifacts_root or Path(__file__).resolve().parents[3] / "artifacts"
+    root = artifacts_root or Path(__file__).resolve().parents[2] / "artifacts"
     src = root / "features" / snapshot_id / "tabular_features.parquet"
     model_path = root / "models" / snapshot_id / "pricing" / "tabpfn" / "model.tabpfn_fit.zip"
     out_dir = root / "caches" / snapshot_id / "pricing"
