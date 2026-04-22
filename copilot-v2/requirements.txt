@@ -1,3 +1,8 @@
+# API server
+fastapi
+uvicorn[standard]
+pydantic
+
 # Core data + retrieval runtime
 numpy
 pandas

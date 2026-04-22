@@ -135,6 +135,126 @@ The `app/precompute/` directory has been removed — `src/copilot_v2/scripts/pre
 
 ---
 
+## Pipeline, Orchestrator, and API (Implemented)
+
+### `llm.py`
+Lightweight self-contained LLM utility — no third-party SDK.
+- `OllamaClient` — posts to the Ollama `/api/chat` endpoint
+- `OllamaChatResult` — typed result with `content` and `elapsed_s`
+- `extract_json_object()` — extracts the first valid JSON object from a raw model response
+- Schema validators: `validate_ranked_actions()`, `validate_specialist_proposal()`, `validate_peer_review()`
+- `SchemaError` — raised when a parsed object fails schema validation
+
+### `agents/orchestrator/advocate.py`
+- `build_messages()` — builds the Ollama chat messages with `is_revision` flag
+  - `is_revision=False` (round 1): task is "argue for the strongest plan"
+  - `is_revision=True` (revision rounds): surfaces `round1_critic` and optional `human_feedback` prominently as `CRITIC_FEEDBACK:` in the prompt
+  - Payload is slimmed to only the fields the LLM needs (product_id, pricing source, sentiment scores, inventory status, signals) and serialized as proper JSON via `json.dumps()` — not Python dict syntax
+- `run()` — calls Ollama, retries twice on JSON parse failure, falls back to top-k candidates by retrieval order
+
+**Key implementation note:** The payload must be serialized with `json.dumps()` before embedding in the prompt. Passing a raw Python dict (with single quotes, `True/False`, `None`) caused llama3.1:8b to describe the input structure instead of producing an action plan.
+
+### `agents/orchestrator/critic.py`
+- `build_messages()` — receives the advocate proposal and challenges it; payload slimmed to goal, constraints, advocate output, and candidate inventory/availability signals; serialized with `json.dumps()`
+- Output schema: `{agreements: [...], disagreements: [...], suggested_changes: [...]}`
+- `run()` — calls Ollama, retries once on failure, falls back to empty peer review
+
+### `agents/orchestrator/judge.py`
+- `build_messages()` — receives final advocate + critic outputs plus any human feedback
+- `_fallback_from_baseline()` — returns the baseline ranked actions if JSON fails
+- `run()` — returns `(final_actions, raw_trace, judge_fallback: bool)`
+
+### `agents/orchestrator/human_review.py`
+Retained for reference. The UI now owns the round-continue / move-on decision, so this module is not called by the orchestrator at runtime. The `decide()` function and its three modes (`skip`, `second_round`, `second_round_with_feedback`) remain available for offline testing or future CLI use.
+
+### `agents/orchestrator/orchestrator.py`
+Three public functions — no judge runs except in `run_judge_only()`:
+
+```
+run_acj()
+  Round 1: Advocate → Critic
+  Returns: (adv_result, crit_result, debate_trace)
+  Writes:  4_debate_advocate_r1.json, 5_debate_critic_r1.json
+
+continue_acj(prev_advocate, prev_critic, human_feedback?)
+  Revision round: Advocate (sees prev critic as CRITIC_FEEDBACK) → Critic
+  Returns: (adv_result, crit_result, raw_trace)
+  Writes:  4_debate_advocate.json, 5_debate_critic.json
+  (callable N times by the UI via /debate/continue)
+
+run_judge_only(latest_advocate, latest_critic, human_feedback?)
+  Judge runs once on final debate outputs
+  Returns: (final_actions, judge_raw, judge_fallback)
+  Writes:  8_debate_judge.json
+```
+
+`_run_round()` is the shared inner helper used by both `run_acj` and `continue_acj`.
+
+### `pipeline.py`
+Four public methods matching the four active API endpoints:
+
+**`run_pipeline()`** — called by `POST /pipeline`:
+1. `RetrievalAgent.retrieve(goal)` → candidate list; writes `1_retrieval.json`
+2. `_enrich()` → attaches pricing, sentiment, inventory signals; writes `2_enriched.json`
+3. `_make_baseline()` → sorts by retrieval score, `price_change=0`; writes `3_baseline.json`
+4. Returns `enriched_candidates` + `baseline_ranked_actions` — no LLM calls
+
+**`start_debate()`** — called by `POST /debate/start`:
+- Calls `run_acj()` with pre-enriched candidates (no retrieval re-run)
+- Creates `run_{ts}_{owner}_debate/` folder; writes stages 4–5
+- Returns `{ok, advocate, critic, debate_trace}`
+
+**`continue_debate()`** — called by `POST /debate/continue`:
+- Calls `continue_acj(prev_advocate, prev_critic, human_feedback?)`
+- Creates a separate `run_{ts}_{owner}_cont/` folder
+- Returns `{ok, advocate, critic, raw}` — no ranked_actions, no judge
+
+**`run_judge()`** — called by `POST /debate/judge`:
+- Calls `run_judge_only(latest_advocate, latest_critic, human_feedback?)`
+- Calls `_merge_judge_output()` to attach enriched signals to judge decisions
+- Creates a `run_{ts}_{owner}_judge/` folder; writes `8_debate_judge.json` and `9_final.json`
+- Returns `{ok, ranked_actions, judge_raw, judge_fallback}`
+
+### Artifact saving
+Every pipeline call writes its outputs to a timestamped folder under `artifacts/runs/{snapshot_id}/`. Files are written immediately after each agent completes so partial runs are recoverable on crash.
+
+| Folder suffix | Created by | Files |
+|---|---|---|
+| `run_{ts}_{owner}/` | `run_pipeline()` | `1_retrieval.json`, `2_enriched.json`, `3_baseline.json` |
+| `run_{ts}_{owner}_debate/` | `start_debate()` | `4_debate_advocate_r1.json`, `5_debate_critic_r1.json` |
+| `run_{ts}_{owner}_cont/` | `continue_debate()` | `4_debate_advocate.json`, `5_debate_critic.json` |
+| `run_{ts}_{owner}_judge/` | `run_judge()` | `8_debate_judge.json`, `9_final.json` |
+
+### `api/app.py`
+FastAPI server with CORS enabled.
+- `GET /health` — reports cache load status for all three specialist agents
+- `POST /pipeline` — fast retrieval + enrichment + baseline (no LLMs)
+- `POST /debate/start` — advocate + critic round 1 (LLMs); takes pre-enriched candidates
+- `POST /debate/continue` — one more advocate + critic revision round (LLMs)
+- `POST /debate/judge` — runs the judge once on the final advocate + critic; returns `ranked_actions`
+- `POST /orchestrate` — legacy all-in-one endpoint; kept for compatibility
+- Lazy `get_pipeline()` — initialized once on first request using env vars:
+  - `COPILOT_SNAPSHOT_ID` (default: `38710839ca6e1009`)
+  - `COPILOT_ARTIFACTS_ROOT` (default: `copilot-v2/artifacts`)
+  - `COPILOT_OLLAMA_URL` (default: `http://localhost:11434`)
+
+### Starting the API server (Windows PowerShell)
+```powershell
+cd copilot-v2
+$env:COPILOT_ARTIFACTS_ROOT = "$PWD\artifacts"
+$env:PYTHONPATH = "$PWD"
+uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Risk level calculation (UI)
+`buildPlansFromRanked` in `App.jsx` computes risk level from three signals:
+- `inventory.risk_flag = true` → **High**
+- `sentiment.p_neg > 0.4` → **High**
+- `signals.total_returns > 3` or `sentiment.p_neg > 0.2` → **Medium**
+- Otherwise → **Low**
+
+---
+
 ## What Is Missing / Incomplete
 
 ### `recommended_price_change_pct` — not missing, it is a computed label
@@ -142,7 +262,7 @@ This column is **generated on demand** by `build_pricing_training_table.py` usin
 
 To regenerate the pricing training table:
 ```bash
-PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.build_pricing_training_table \
+PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_pricing_training_table \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts
 ```
@@ -150,13 +270,10 @@ PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.build_pricing_training_ta
 This writes `artifacts/evals/{snapshot_id}/pricing/pricing_training_table.parquet`, which `build_pricing_cache.py` then reads.
 
 ### Inventory cache does not exist yet
-`artifacts/caches/{snapshot_id}/inventory/` does not exist. Unlike pricing and sentiment, the inventory cache was never precomputed. `precompute_inventory.py` must be run once to generate it before `inventory_agent.py` can be used.
+`artifacts/caches/{snapshot_id}/inventory/` does not exist. Unlike pricing and sentiment, the inventory cache was never precomputed. Run `build_inventory_cache.py` once to generate it before `inventory_agent.py` can be used.
 
 ### Retrieval agent index persistence *(resolved)*
 `RetrievalAgent` now loads the pre-built FAISS index from disk via `load_index()`. The index files already exist at `artifacts/indexes/{snapshot_id}/dense/intfloat_e5-large-v2/`. `build_index()` is only needed when the catalog or model changes.
-
-### Agents not wired to the orchestrator
-The three cache-reading agents (`pricing_agent.py`, `sentiment_agent.py`, `inventory_agent.py`) and the retrieval agent are standalone classes. They are not yet connected to `pipeline.py` or the debate orchestrator in `src/copilot_v2/runtime/`.
 
 ---
 

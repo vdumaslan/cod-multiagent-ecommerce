@@ -4,134 +4,111 @@ import PipelineStatusView from "./components/PipelineStatusView";
 import QueryInputView from "./components/QueryInputView";
 import ResultsView from "./components/ResultsView";
 
-// Orchestrator API.
-// In dev, Vite proxies /health and /orchestrate to 127.0.0.1:8008 (see vite.config.js).
 const API_BASE = "";
 const DEFAULT_OWNER_ID = "store_00";
 const pipelineAgents = ["Retrieval", "Sentiment", "Pricing", "Inventory"];
 const initialPipelineState = pipelineAgents.map((name) => ({ name, status: "idle" }));
 
 function pipelineReducer(state, action) {
-  if (action.type === "RESET") {
-    return initialPipelineState;
-  }
+  if (action.type === "RESET") return initialPipelineState;
   if (action.type === "SET_STATUS") {
-    return state.map((agent) => (agent.name === action.agentName ? { ...agent, status: action.status } : agent));
+    return state.map((a) => (a.name === action.agentName ? { ...a, status: action.status } : a));
   }
   return state;
 }
 
-async function postJson(path, payload) {
+async function postJson(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    throw new Error(`API ${path} failed with status ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
   const data = await res.json();
-  if (!data.ok) {
-    throw new Error(data.error || `API ${path} returned not ok`);
-  }
-  return data.output;
-}
-
-async function orchestrateGoal(goal) {
-  const res = await fetch(`${API_BASE}/orchestrate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      goal,
-      owner_id: DEFAULT_OWNER_ID,
-      enable_pricing: true,
-      enable_sentiment: true,
-      use_llm_policy: true,
-      debate_mode: "acj",
-      advocate_model: "llama3.1:8b",
-      critic_model: "qwen2.5:7b-instruct",
-      judge_model: "qwen2.5:7b-instruct",
-      prompt_style: "few_shot_json",
-      prompt_version: "v1",
-      debate_top_k: 3,
-      candidate_m: 20,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`API /orchestrate failed with status ${res.status}`);
-  }
-  const data = await res.json();
-  if (!data.ok) {
-    throw new Error(data.error || "API /orchestrate returned not ok");
-  }
+  if (!data.ok) throw new Error(data.error || `${path} returned not ok`);
   return data;
 }
 
+// ── Debate trace → human-readable turns ──────────────────────────────────────
+
+function formatAdvocate(adv, round) {
+  const prefix = round > 1 ? `[Round ${round}] ` : "";
+  const actions = (adv.proposed_actions || [])
+    .map((a) => {
+      const pct = Number(a.recommended_price_change_pct || 0);
+      return `• ${a.product_id}: ${a.action_type} ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+    })
+    .join("\n");
+  const claims = (adv.key_claims || []).map((c) => `• ${c}`).join("\n");
+  const concerns = (adv.concerns || []).map((c) => `• ${c}`).join("\n");
+  const parts = [];
+  if (actions) parts.push(`${prefix}Proposed Actions:\n${actions}`);
+  if (claims) parts.push(`Key Claims:\n${claims}`);
+  if (concerns) parts.push(`Concerns:\n${concerns}`);
+  return parts.join("\n\n") || "No advocate output.";
+}
+
+function formatCritic(crit, round) {
+  const prefix = round > 1 ? `[Round ${round}] ` : "";
+  const parts = [];
+  const agreements = crit.agreements || [];
+  const disagreements = crit.disagreements || [];
+  const changes = crit.suggested_changes || [];
+  if (agreements.length) parts.push(`${prefix}Agreements:\n${agreements.map((x) => `• ${x}`).join("\n")}`);
+  if (disagreements.length) parts.push(`Disagreements:\n${disagreements.map((x) => `• ${x}`).join("\n")}`);
+  if (changes.length) parts.push(`Suggested Changes:\n${changes.map((x) => `• ${x}`).join("\n")}`);
+  return parts.join("\n\n") || "No critic output.";
+}
+
+function advCritTurns(adv, crit, round) {
+  const now = Date.now();
+  return [
+    { id: `adv-r${round}-${now}`, actor: "Advocate LLM", message: formatAdvocate(adv, round) },
+    { id: `crit-r${round}-${now + 1}`, actor: "Critic LLM", message: formatCritic(crit, round) },
+  ];
+}
+
+// ── Plan building ─────────────────────────────────────────────────────────────
+
 const mockPlans = [
-  {
-    id: "plan-a",
-    title: "Margin-First Bundle Expansion",
-    actions: [
-      "Launch 3 category-specific bundles with margin thresholds.",
-      "Increase budget on top 20% ROAS campaigns by 15%.",
-      "Run weekly inventory checks before promo pushes.",
-    ],
-    impactScore: 88,
-    riskLevel: "Medium",
-    confidence: 82,
-  },
-  {
-    id: "plan-b",
-    title: "Inventory-Protected Growth",
-    actions: [
-      "Gate promotions by 21-day stock coverage rule.",
-      "Prioritize substitutes for low-coverage SKUs.",
-      "Reduce discount depth for volatile demand categories.",
-    ],
-    impactScore: 79,
-    riskLevel: "Low",
-    confidence: 76,
-  },
-  {
-    id: "plan-c",
-    title: "Aggressive Revenue Sprint",
-    actions: [
-      "Double ad spend in best-performing channels for 2 weeks.",
-      "Enable site-wide flash discount windows at peak traffic.",
-      "Backfill risky SKUs through expedited suppliers.",
-    ],
-    impactScore: 91,
-    riskLevel: "High",
-    confidence: 67,
-  },
+  { id: "plan-a", title: "Margin-First Bundle Expansion", actions: ["Launch 3 category-specific bundles.", "Increase top ROAS campaigns by 15%.", "Weekly inventory checks before promo pushes."], impactScore: 88, riskLevel: "Medium", confidence: 82 },
+  { id: "plan-b", title: "Inventory-Protected Growth", actions: ["Gate promotions by 21-day stock coverage.", "Prioritize substitutes for low-coverage SKUs.", "Reduce discount depth for volatile categories."], impactScore: 79, riskLevel: "Low", confidence: 76 },
+  { id: "plan-c", title: "Aggressive Revenue Sprint", actions: ["Double ad spend in best channels for 2 weeks.", "Flash discount windows at peak traffic.", "Backfill risky SKUs via expedited suppliers."], impactScore: 91, riskLevel: "High", confidence: 67 },
 ];
 
-function buildPlansFromSample(sample) {
-  if (!sample || !Array.isArray(sample.baseline_actions)) {
-    return mockPlans;
-  }
-  return sample.baseline_actions.slice(0, 3).map((action, idx) => {
-    const productId = action.product_id || `unknown-${idx + 1}`;
-    const retrievalScore = action?.evidence?.retrieval_score ?? 0.7;
-    const returns = action?.signals?.total_returns ?? 0;
-    const riskFlag = Boolean(action?.inventory?.risk_flag);
-    const riskLevel = riskFlag ? "High" : returns > 3 ? "Medium" : "Low";
-    const confidence = Math.max(55, Math.min(95, Math.round(Number(retrievalScore) * 100)));
-    const impactScore = Math.max(50, Math.min(99, Math.round(confidence * 0.92)));
+function buildPlansFromRanked(ranked) {
+  if (!ranked || !ranked.length) return mockPlans;
+  return ranked.map((a) => {
+    const pct = Number(a.recommended_price_change_pct || 0);
+    const sent = a.sentiment || {};
+    const inv = a.inventory || {};
+    const pNeg = Number(sent.p_neg || 0);
+    const highReturns = (a.signals?.total_returns || 0) > 3;
+    const riskLevel = inv.risk_flag || pNeg > 0.4
+      ? "High"
+      : highReturns || pNeg > 0.2
+      ? "Medium"
+      : "Low";
+    const retrieval = a.evidence?.retrieval_score ?? 0.7;
+    const confidence = Math.max(55, Math.min(95, Math.round(Number(retrieval) * 100)));
     return {
-      id: productId,
-      title: `Replay Plan for ${productId}`,
+      id: String(a.product_id),
+      title: `${a.action_type || "reprice"} — ${a.product_id}`,
       actions: [
-        `Action: ${action.action_type || "reprice"} (${Number(action.recommended_price_change_pct || 0).toFixed(2)}%)`,
-        `Inventory status: ${action?.inventory?.stock_status || "unknown"}`,
-        `Evidence score: ${Number(retrievalScore).toFixed(3)}`,
-      ],
-      impactScore,
+        `Pricing: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% (source=${a?.pricing?.source || "unknown"})`,
+        sent.n_reviews ? `Sentiment (n=${sent.n_reviews}): +${Number(sent.p_pos || 0).toFixed(2)} ~${Number(sent.p_neu || 0).toFixed(2)} -${Number(sent.p_neg || 0).toFixed(2)}` : "Sentiment: (n/a)",
+        `Inventory: ${inv.stock_status || "unknown"}`,
+        ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
+        ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
+      ].slice(0, 8),
+      impactScore: Math.max(50, Math.min(99, Math.round(confidence * 0.92))),
       riskLevel,
       confidence,
     };
   });
 }
+
+// ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [view, setView] = useState("query");
@@ -143,286 +120,248 @@ export default function App() {
   const [isAwaitingContext, setIsAwaitingContext] = useState(false);
   const [contextDraft, setContextDraft] = useState("");
   const [canViewResults, setCanViewResults] = useState(false);
-  const [roundNumber, setRoundNumber] = useState(1);
-  const [agentOutputs, setAgentOutputs] = useState(null);
-  const [lastAdvocateOutput, setLastAdvocateOutput] = useState("");
-  const [lastCriticOutput, setLastCriticOutput] = useState("");
-  const [contextHistory, setContextHistory] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState(null);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [saveStatusMessage, setSaveStatusMessage] = useState("");
   const [apiHealth, setApiHealth] = useState("checking");
   const [plans, setPlans] = useState([]);
-  const [orchestrateMeta, setOrchestrateMeta] = useState(null);
+  const [pipelineResult, setPipelineResult] = useState(null);
+  const [llmRunningLabel, setLlmRunningLabel] = useState("");
+
+  // Debate state across N rounds
+  const [roundNumber, setRoundNumber] = useState(1);
+  const [latestAdvocate, setLatestAdvocate] = useState(null);
+  const [latestCritic, setLatestCritic] = useState(null);
+
   const debateTimersRef = useRef([]);
   const saveTimerRef = useRef(null);
 
-  useEffect(() => {
-    if (view !== "pipeline" || !query.trim()) {
-      return undefined;
-    }
-    let cancelled = false;
-    const runPipeline = async () => {
-      try {
-        dispatchPipeline({ type: "RESET" });
-        dispatchPipeline({ type: "SET_STATUS", agentName: "Retrieval", status: "running" });
-        const retrieval = await postJson("/ui/retrieval", { user_query: query.trim() });
-        if (cancelled) return;
-        dispatchPipeline({ type: "SET_STATUS", agentName: "Retrieval", status: "done" });
+  // ── Health check ────────────────────────────────────────────────────────────
 
-        ["Sentiment", "Pricing", "Inventory"].forEach((name) =>
-          dispatchPipeline({ type: "SET_STATUS", agentName: name, status: "running" })
-        );
-        const [sentiment, pricing, inventory] = await Promise.all([
-          postJson("/ui/sentiment", { user_query: query.trim(), retrieval_output: retrieval }),
-          postJson("/ui/pricing", { user_query: query.trim(), retrieval_output: retrieval }),
-          postJson("/ui/inventory", { user_query: query.trim(), retrieval_output: retrieval }),
-        ]);
-        if (cancelled) return;
-        ["Sentiment", "Pricing", "Inventory"].forEach((name) =>
-          dispatchPipeline({ type: "SET_STATUS", agentName: name, status: "done" })
-        );
-        setAgentOutputs({ userQuery: query.trim(), retrieval, sentiment, pricing, inventory });
-        setPlans(buildPlansFromSample(retrieval.selected_sample));
-        setView("debate");
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`);
+        if (!res.ok) throw new Error();
+        if (!cancelled) setApiHealth("online");
       } catch {
-        if (!cancelled) {
-          setView("query");
-          setIsLoading(false);
-        }
+        if (!cancelled) setApiHealth("offline");
       }
     };
-    runPipeline();
-    return () => {
-      cancelled = true;
-    };
-  }, [view, query]);
+    check();
+    const id = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
+
+  // ── Debate helpers ──────────────────────────────────────────────────────────
 
   const clearDebateTimers = () => {
-    debateTimersRef.current.forEach((timer) => clearTimeout(timer));
+    debateTimersRef.current.forEach(clearTimeout);
     debateTimersRef.current = [];
-  };
-
-  const clearSaveTimer = () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-  };
-
-  const buildRoundTurns = async (currentRound, contextText = "") => {
-    if (!agentOutputs) {
-      return [];
-    }
-    const advocate = await postJson("/ui/debate/advocate", {
-      user_query: agentOutputs.userQuery,
-      retrieval_output: agentOutputs.retrieval,
-      sentiment_output: agentOutputs.sentiment,
-      pricing_output: agentOutputs.pricing,
-      inventory_output: agentOutputs.inventory,
-      previous_advocate_output: lastAdvocateOutput,
-      previous_critic_output: lastCriticOutput,
-      added_context: contextText,
-      round_number: currentRound,
-    });
-    const critic = await postJson("/ui/debate/critic", {
-      user_query: agentOutputs.userQuery,
-      retrieval_output: agentOutputs.retrieval,
-      sentiment_output: agentOutputs.sentiment,
-      pricing_output: agentOutputs.pricing,
-      inventory_output: agentOutputs.inventory,
-      advocate_output: advocate.message,
-      previous_advocate_output: lastAdvocateOutput,
-      previous_critic_output: lastCriticOutput,
-      added_context: contextText,
-      round_number: currentRound,
-    });
-
-    return [
-      {
-        id: `advocate-${currentRound}-${Date.now()}`,
-        actor: "Advocate LLM",
-        message: advocate.message,
-      },
-      {
-        id: `critic-${currentRound}-${Date.now() + 1}`,
-        actor: "Critic LLM",
-        message: critic.message,
-      },
-    ];
   };
 
   const playDebateTurns = (turns, onDone) => {
     clearDebateTimers();
     setIsDebatePlaying(true);
-
     turns.forEach((turn, idx) => {
-      const timer = setTimeout(() => {
-        setDebateLog((prev) => [...prev, turn]);
-        if (turn.actor === "Advocate LLM") {
-          setLastAdvocateOutput(turn.message);
-        }
-        if (turn.actor === "Critic LLM") {
-          setLastCriticOutput(turn.message);
-        }
-      }, idx * 1200);
-      debateTimersRef.current.push(timer);
+      const t = setTimeout(() => setDebateLog((prev) => [...prev, turn]), idx * 1200);
+      debateTimersRef.current.push(t);
     });
-
-    const doneTimer = setTimeout(() => {
+    const doneT = setTimeout(() => {
       setIsDebatePlaying(false);
-      if (onDone) {
-        onDone();
-      }
+      if (onDone) onDone();
     }, turns.length * 1200);
-    debateTimersRef.current.push(doneTimer);
+    debateTimersRef.current.push(doneT);
   };
 
-  useEffect(() => {
-    if (view !== "debate") {
-      clearDebateTimers();
-      return undefined;
-    }
+  // ── Step 1 → Step 2: submit query ──────────────────────────────────────────
 
-    (async () => {
-      const turns = await buildRoundTurns(1);
-      if (turns.length) {
-        playDebateTurns(turns);
-      }
-    })();
+  const handleSubmitQuery = () => {
+    if (!query.trim()) return;
+    setIsLoading(true);
+    setPipelineResult(null);
+    dispatchPipeline({ type: "RESET" });
+    setView("pipeline");
+
+    postJson("/pipeline", {
+      goal: query.trim(),
+      owner_id: DEFAULT_OWNER_ID,
+      enable_pricing: true,
+      enable_sentiment: true,
+    })
+      .then((data) => setPipelineResult(data))
+      .catch(() => { setView("query"); setIsLoading(false); });
+  };
+
+  // Pipeline animation — Inventory stays "running" until API returns
+  useEffect(() => {
+    if (view !== "pipeline") return undefined;
+    const timers = [];
+    const s = (fn, ms) => { const t = setTimeout(fn, ms); timers.push(t); };
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Retrieval", status: "running" }), 0);
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Retrieval", status: "done" }), 700);
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Sentiment", status: "running" }), 700);
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Sentiment", status: "done" }), 1400);
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Pricing", status: "running" }), 1400);
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Pricing", status: "done" }), 2100);
+    s(() => dispatchPipeline({ type: "SET_STATUS", agentName: "Inventory", status: "running" }), 2100);
+    return () => timers.forEach(clearTimeout);
+  }, [view]);
+
+  // When /pipeline resolves → finish animation, go to debate
+  useEffect(() => {
+    if (view !== "pipeline" || !pipelineResult) return undefined;
+    dispatchPipeline({ type: "SET_STATUS", agentName: "Inventory", status: "done" });
+    const t = setTimeout(() => {
+      setIsLoading(false);
+      setView("debate");
+    }, 400);
+    return () => clearTimeout(t);
+  }, [view, pipelineResult]);
+
+  // ── Step 3: debate — N rounds, judge runs only on Move On ──────────────────
+
+  useEffect(() => {
+    if (view !== "debate") { clearDebateTimers(); return undefined; }
+
     setDebateLog([]);
     setCanViewResults(false);
     setContextDraft("");
     setIsAwaitingContext(false);
-    setContextHistory([]);
     setRoundNumber(1);
-    setLastAdvocateOutput("");
-    setLastCriticOutput("");
+    setLatestAdvocate(null);
+    setLatestCritic(null);
+    setLlmRunningLabel("Advocate and Critic LLMs are running...");
 
-    return () => {
-      clearDebateTimers();
-    };
-  }, [view]);
+    let cancelled = false;
+    postJson("/debate/start", {
+      goal: query,
+      owner_id: DEFAULT_OWNER_ID,
+      enriched_candidates: pipelineResult?.enriched_candidates || [],
+      baseline_actions: pipelineResult?.baseline_ranked_actions || [],
+      advocate_model: "llama3.1:8b",
+      critic_model: "qwen2.5:7b-instruct",
+      judge_model: "qwen2.5:7b-instruct",
+      prompt_style: "few_shot_json",
+      prompt_version: "v1",
+    }).then((data) => {
+      if (cancelled) return;
+      setLlmRunningLabel("");
+      setLatestAdvocate(data.advocate);
+      setLatestCritic(data.critic);
+      if (data.advocate && data.critic) {
+        playDebateTurns(advCritTurns(data.advocate, data.critic, 1));
+      }
+    }).catch(() => {
+      if (!cancelled) setLlmRunningLabel("");
+    });
 
-  const handleSubmitQuery = () => {
-    if (!query.trim()) {
-      return;
-    }
+    return () => { cancelled = true; clearDebateTimers(); };
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    setIsLoading(true);
-    orchestrateGoal(query.trim())
-      .then((data) => {
-        const ranked = data.ranked_actions || [];
-        const mappedPlans = ranked.map((a) => {
-          const pid = a.product_id;
-          const pct = a.recommended_price_change_pct;
-          const sent = a.sentiment || {};
-          const inv = a.inventory || {};
-          const stock = inv.stock_status ? `Inventory: ${inv.stock_status}` : "Inventory: (n/a)";
-          const sentLine =
-            sent && sent.n_reviews
-              ? `Sentiment (n=${sent.n_reviews}): pos=${Number(sent.p_pos).toFixed(2)} neu=${Number(sent.p_neu).toFixed(
-                  2
-                )} neg=${Number(sent.p_neg).toFixed(2)}`
-              : "Sentiment: (n/a)";
-          const priceLine =
-            typeof pct === "number"
-              ? `Pricing recommendation: ${pct.toFixed(2)}% (source=${a?.pricing?.source || "unknown"})`
-              : "Pricing: (n/a)";
-          return {
-            id: String(pid),
-            title: `${a.action_type || "action"} — ${pid}`,
-            actions: [
-              priceLine,
-              sentLine,
-              stock,
-              ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
-              ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
-            ].slice(0, 8),
-            impactScore: 80,
-            riskLevel: (inv.risk_flag ? "High" : "Low"),
-            confidence: 85,
-          };
-        });
-        setPlans(mappedPlans);
-        setOrchestrateMeta({
-          owner_id: data?.trace?.owner_id || DEFAULT_OWNER_ID,
-          pricing: data?.trace?.pricing || null,
-          sentiment: data?.trace?.sentiment || null,
-          debate: data?.debate_trace || null,
-        });
-        setView("results");
-      })
-      .catch(() => {
-        setView("query");
-      })
-      .finally(() => setIsLoading(false));
-  };
+  const addErrorTurn = (msg) => setDebateLog((prev) => [...prev, { id: `err-${Date.now()}`, actor: "System", message: msg }]);
 
+  // "Another Round" — advocate + critic again, decision panel returns after
   const handleAnotherRound = async () => {
-    if (isDebatePlaying || isAwaitingContext || canViewResults) {
-      return;
-    }
+    if (llmRunningLabel || isDebatePlaying || isAwaitingContext || canViewResults) return;
     const nextRound = roundNumber + 1;
-    setRoundNumber(nextRound);
-    const turns = await buildRoundTurns(nextRound);
-    playDebateTurns(turns);
+    setLlmRunningLabel("Advocate and Critic LLMs are running...");
+    try {
+      const data = await postJson("/debate/continue", {
+        goal: query,
+        owner_id: DEFAULT_OWNER_ID,
+        enriched_candidates: pipelineResult?.enriched_candidates || [],
+        baseline_actions: pipelineResult?.baseline_ranked_actions || [],
+        prev_advocate: latestAdvocate || {},
+        prev_critic: latestCritic || {},
+        human_feedback: null,
+      });
+      setRoundNumber(nextRound);
+      setLatestAdvocate(data.advocate);
+      setLatestCritic(data.critic);
+      setLlmRunningLabel("");
+      playDebateTurns(advCritTurns(data.advocate, data.critic, nextRound));
+    } catch {
+      setLlmRunningLabel("");
+      addErrorTurn("Round failed — LLM may be unavailable. Try again.");
+    }
   };
 
+  // "Add Context" — show text input
   const handleAddContext = () => {
-    if (isDebatePlaying || canViewResults) {
-      return;
-    }
+    if (llmRunningLabel || isDebatePlaying || canViewResults) return;
     setIsAwaitingContext(true);
   };
 
+  // "Submit Context + Run Round" — advocate + critic with human feedback
   const handleSubmitContext = async () => {
-    if (!contextDraft.trim() || isDebatePlaying || canViewResults) {
-      return;
-    }
-
-    const userTurn = {
-      id: `human-${Date.now()}`,
-      actor: "Human Review",
-      message: contextDraft.trim(),
-    };
-    setDebateLog((prev) => [...prev, userTurn]);
-    setIsAwaitingContext(false);
-
+    if (!contextDraft.trim() || llmRunningLabel || isDebatePlaying || canViewResults) return;
+    const feedback = contextDraft.trim();
     const nextRound = roundNumber + 1;
-    setRoundNumber(nextRound);
-    const submittedContext = contextDraft.trim();
-    setContextHistory((prev) => [...prev, submittedContext]);
+
+    setDebateLog((prev) => [...prev, { id: `human-${Date.now()}`, actor: "Human Review", message: feedback }]);
+    setIsAwaitingContext(false);
     setContextDraft("");
-    const turns = await buildRoundTurns(nextRound, submittedContext);
-    playDebateTurns(turns);
-  };
+    setLlmRunningLabel("Advocate and Critic LLMs are running...");
 
-  const handleMoveOn = async () => {
-    if (isDebatePlaying || isAwaitingContext || canViewResults) {
-      return;
+    try {
+      const data = await postJson("/debate/continue", {
+        goal: query,
+        owner_id: DEFAULT_OWNER_ID,
+        enriched_candidates: pipelineResult?.enriched_candidates || [],
+        baseline_actions: pipelineResult?.baseline_ranked_actions || [],
+        prev_advocate: latestAdvocate || {},
+        prev_critic: latestCritic || {},
+        human_feedback: feedback,
+      });
+      setRoundNumber(nextRound);
+      setLatestAdvocate(data.advocate);
+      setLatestCritic(data.critic);
+      setLlmRunningLabel("");
+      playDebateTurns(advCritTurns(data.advocate, data.critic, nextRound));
+    } catch {
+      setLlmRunningLabel("");
+      addErrorTurn("Round failed — LLM may be unavailable. Try again.");
     }
-
-    const judge = await postJson("/ui/debate/judge", {
-      user_query: agentOutputs.userQuery,
-      retrieval_output: agentOutputs.retrieval,
-      sentiment_output: agentOutputs.sentiment,
-      pricing_output: agentOutputs.pricing,
-      inventory_output: agentOutputs.inventory,
-      latest_advocate_output: lastAdvocateOutput,
-      latest_critic_output: lastCriticOutput,
-      added_context_history: contextHistory,
-    });
-    const judgeTurn = {
-      id: `judge-${Date.now()}`,
-      actor: "Judge LLM",
-      message: judge.message,
-    };
-    playDebateTurns([judgeTurn], () => setCanViewResults(true));
   };
+
+  // "Move On" — judge runs exactly once here
+  const handleMoveOn = async () => {
+    if (llmRunningLabel || isDebatePlaying || isAwaitingContext || canViewResults) return;
+    setLlmRunningLabel("Judge LLM is running...");
+    try {
+      const data = await postJson("/debate/judge", {
+        goal: query,
+        owner_id: DEFAULT_OWNER_ID,
+        enriched_candidates: pipelineResult?.enriched_candidates || [],
+        baseline_actions: pipelineResult?.baseline_ranked_actions || [],
+        latest_advocate: latestAdvocate || {},
+        latest_critic: latestCritic || {},
+      });
+      setLlmRunningLabel("");
+      const judgeContent = data.judge_raw?.judge?.content;
+      const judgeTurn = {
+        id: `judge-${Date.now()}`,
+        actor: "Judge LLM",
+        message: judgeContent ? judgeContent.slice(0, 600) : "Judge synthesis complete. Final ranked actions selected.",
+      };
+      playDebateTurns([judgeTurn], () => {
+        setPlans(buildPlansFromRanked(data.ranked_actions));
+        setCanViewResults(true);
+      });
+    } catch {
+      setLlmRunningLabel("");
+      addErrorTurn("Judge failed — LLM may be unavailable. Try again.");
+    }
+  };
+
+  // ── Step 4: results ─────────────────────────────────────────────────────────
 
   const handleRejectAll = () => {
-    clearSaveTimer();
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     clearDebateTimers();
     setSelectedPlanId(null);
     setQuery("");
@@ -431,67 +370,31 @@ export default function App() {
     setIsAwaitingContext(false);
     setCanViewResults(false);
     setContextDraft("");
-    setRoundNumber(1);
-    setAgentOutputs(null);
-    setLastAdvocateOutput("");
-    setLastCriticOutput("");
-    setContextHistory([]);
     setIsSavingPlan(false);
     setSaveStatusMessage("");
     setPlans([]);
-    setOrchestrateMeta(null);
+    setPipelineResult(null);
+    setLatestAdvocate(null);
+    setLatestCritic(null);
+    setRoundNumber(1);
+    setIsLoading(false);
     setView("query");
   };
 
   const handleChoosePlan = (planId) => {
-    const chosenPlan = plans.find((plan) => plan.id === planId);
-    if (!chosenPlan) {
-      return;
-    }
-
-    clearSaveTimer();
+    const chosen = plans.find((p) => p.id === planId);
+    if (!chosen) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setSelectedPlanId(planId);
     setIsSavingPlan(true);
-    setSaveStatusMessage(`Saving "${chosenPlan.title}" to BigQuery...`);
-
-    postJson("/ui/save_plan", { plan_id: chosenPlan.id, title: chosenPlan.title }).then((saved) => {
-      setSaveStatusMessage(`Saved "${chosenPlan.title}" to BigQuery (${saved.target}).`);
-      saveTimerRef.current = setTimeout(() => {
-        handleRejectAll();
-      }, 1200);
-    });
+    setSaveStatusMessage(`Saving "${chosen.title}"...`);
+    saveTimerRef.current = setTimeout(() => {
+      setSaveStatusMessage(`Saved "${chosen.title}".`);
+      saveTimerRef.current = setTimeout(handleRejectAll, 1200);
+    }, 1000);
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    const checkHealth = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/health`);
-        if (!res.ok) {
-          throw new Error("health check failed");
-        }
-        if (!cancelled) {
-          setApiHealth("online");
-        }
-      } catch {
-        if (!cancelled) {
-          setApiHealth("offline");
-        }
-      }
-    };
-    checkHealth();
-    const interval = setInterval(checkHealth, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      clearSaveTimer();
-    };
-  }, []);
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
@@ -500,29 +403,29 @@ export default function App() {
           <p className="text-sm uppercase tracking-[0.2em] text-cyan-400">Multi-Agent BI Dashboard</p>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
-              apiHealth === "online"
-                ? "bg-emerald-500/20 text-emerald-300"
-                : apiHealth === "offline"
-                ? "bg-rose-500/20 text-rose-300"
-                : "bg-amber-500/20 text-amber-300"
+              apiHealth === "online" ? "bg-emerald-500/20 text-emerald-300"
+              : apiHealth === "offline" ? "bg-rose-500/20 text-rose-300"
+              : "bg-amber-500/20 text-amber-300"
             }`}
           >
             API {apiHealth}
           </span>
         </div>
         <p className="mt-2 text-slate-400">
-          View flow: query → orchestrate (retrieval + caches + ACJ debate) → results
-          {orchestrateMeta?.debate?.debate_mode ? ` (debate=${orchestrateMeta.debate.debate_mode})` : ""}
+          Flow: query → pipeline → debate (round {roundNumber}) → judge → results
         </p>
       </div>
 
       {view === "query" && (
         <QueryInputView query={query} setQuery={setQuery} onSubmit={handleSubmitQuery} isLoading={isLoading} />
       )}
+
       {view === "pipeline" && <PipelineStatusView agents={pipeline} />}
+
       {view === "debate" && (
         <DebateView
           log={debateLog}
+          llmRunningLabel={llmRunningLabel}
           isDebatePlaying={isDebatePlaying}
           isAwaitingContext={isAwaitingContext}
           contextDraft={contextDraft}
@@ -531,14 +434,12 @@ export default function App() {
           onAddContext={handleAddContext}
           onAnotherRound={handleAnotherRound}
           onSubmitContext={handleSubmitContext}
-          onCancelContext={() => {
-            setIsAwaitingContext(false);
-            setContextDraft("");
-          }}
+          onCancelContext={() => { setIsAwaitingContext(false); setContextDraft(""); }}
           onMoveOn={handleMoveOn}
           onViewResults={() => setView("results")}
         />
       )}
+
       {view === "results" && (
         <ResultsView
           plans={plans.length ? plans : mockPlans}

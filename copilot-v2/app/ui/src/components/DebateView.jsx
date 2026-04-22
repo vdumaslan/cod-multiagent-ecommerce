@@ -19,10 +19,16 @@ const actorStyles = {
     bubble: "border-emerald-500/30 bg-emerald-500/10",
     label: "text-emerald-300",
   },
+  "System": {
+    container: "justify-center",
+    bubble: "border-red-500/30 bg-red-500/10",
+    label: "text-red-400",
+  },
 };
 
 export default function DebateView({
   log,
+  llmRunningLabel = "",
   isDebatePlaying,
   isAwaitingContext,
   contextDraft,
@@ -35,7 +41,7 @@ export default function DebateView({
   onMoveOn,
   onViewResults,
 }) {
-  const isDecisionTurn = !isDebatePlaying && !canViewResults && !isAwaitingContext;
+  const isDecisionTurn = !llmRunningLabel && !isDebatePlaying && !canViewResults && !isAwaitingContext;
   const isContextTurn = !isDebatePlaying && isAwaitingContext;
   const isResultsTurn = !isDebatePlaying && canViewResults;
 
@@ -76,7 +82,10 @@ export default function DebateView({
             </div>
           </div>
         ))}
-        {isDebatePlaying && (
+        {llmRunningLabel && (
+          <p className="text-sm italic text-slate-400">{llmRunningLabel}</p>
+        )}
+        {!llmRunningLabel && isDebatePlaying && (
           <p className="text-sm italic text-slate-400">New message incoming...</p>
         )}
       </div>
@@ -113,21 +122,21 @@ export default function DebateView({
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={onAddContext}
-                disabled={isDebatePlaying}
+                disabled={!!llmRunningLabel || isDebatePlaying}
                 className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Add Context
               </button>
               <button
                 onClick={onAnotherRound}
-                disabled={isDebatePlaying}
+                disabled={!!llmRunningLabel || isDebatePlaying}
                 className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Another Round
               </button>
               <button
                 onClick={onMoveOn}
-                disabled={isDebatePlaying}
+                disabled={!!llmRunningLabel || isDebatePlaying}
                 className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
               >
                 Move On
