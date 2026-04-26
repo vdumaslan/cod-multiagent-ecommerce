@@ -191,3 +191,4 @@ class HealthResponse(BaseModel):
     has_pricing_cache: bool
     has_sentiment_cache: bool
     has_inventory_cache: bool
+    has_retrieval_index: bool

@@ -20,7 +20,7 @@ class ACJConfig:
     top_k: int = 3
     candidate_m: int = 20
     temperature: float = 0.2
-    num_predict: int = 800
+    num_predict: int = 1200
     seed: int = 42
 
 

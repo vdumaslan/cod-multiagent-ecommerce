@@ -227,7 +227,7 @@ Every pipeline call writes its outputs to a timestamped folder under `artifacts/
 
 ### `api/app.py`
 FastAPI server with CORS enabled.
-- `GET /health` — reports cache load status for all three specialist agents
+- `GET /health` — reports load status for all three caches and the FAISS retrieval index (`has_pricing_cache`, `has_sentiment_cache`, `has_inventory_cache`, `has_retrieval_index`)
 - `POST /pipeline` — fast retrieval + enrichment + baseline (no LLMs)
 - `POST /debate/start` — advocate + critic round 1 (LLMs); takes pre-enriched candidates
 - `POST /debate/continue` — one more advocate + critic revision round (LLMs)
@@ -269,8 +269,8 @@ PYTHONPATH=copilot-v2/src python -m copilot_v2.scripts.precompute.build_pricing_
 
 This writes `artifacts/evals/{snapshot_id}/pricing/pricing_training_table.parquet`, which `build_pricing_cache.py` then reads.
 
-### Inventory cache does not exist yet
-`artifacts/caches/{snapshot_id}/inventory/` does not exist. Unlike pricing and sentiment, the inventory cache was never precomputed. Run `build_inventory_cache.py` once to generate it before `inventory_agent.py` can be used.
+### Inventory cache *(resolved)*
+`artifacts/caches/{snapshot_id}/inventory/` has been generated and is available on the shared Google Drive. Run `build_inventory_cache.py` to regenerate it if needed.
 
 ### Retrieval agent index persistence *(resolved)*
 `RetrievalAgent` now loads the pre-built FAISS index from disk via `load_index()`. The index files already exist at `artifacts/indexes/{snapshot_id}/dense/intfloat_e5-large-v2/`. `build_index()` is only needed when the catalog or model changes.

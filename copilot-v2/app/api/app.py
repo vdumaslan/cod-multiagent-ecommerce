@@ -58,6 +58,7 @@ def health() -> HealthResponse:
         has_pricing_cache=bool(p.pricing._cache),
         has_sentiment_cache=bool(p.sentiment._cache),
         has_inventory_cache=bool(p.inventory._cache),
+        has_retrieval_index=p.retrieval._index is not None,
     )
 
 

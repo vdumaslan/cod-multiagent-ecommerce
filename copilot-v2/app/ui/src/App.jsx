@@ -144,7 +144,9 @@ export default function App() {
       try {
         const res = await fetch(`${API_BASE}/health`);
         if (!res.ok) throw new Error();
-        if (!cancelled) setApiHealth("online");
+        const data = await res.json();
+        const allReady = data.has_pricing_cache && data.has_sentiment_cache && data.has_inventory_cache && data.has_retrieval_index;
+        if (!cancelled) setApiHealth(allReady ? "online" : "degraded");
       } catch {
         if (!cancelled) setApiHealth("offline");
       }
@@ -405,6 +407,7 @@ export default function App() {
             className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
               apiHealth === "online" ? "bg-emerald-500/20 text-emerald-300"
               : apiHealth === "offline" ? "bg-rose-500/20 text-rose-300"
+              : apiHealth === "degraded" ? "bg-orange-500/20 text-orange-300"
               : "bg-amber-500/20 text-amber-300"
             }`}
           >
