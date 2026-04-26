@@ -42,10 +42,12 @@ def build_messages(
         "candidates": [
             {
                 "product_id": c.get("product_id"),
+                "suggested_action": c.get("suggested_action"),
                 "recommended_price_change_pct": c.get("recommended_price_change_pct"),
                 "inventory_status": c.get("inventory", {}).get("stock_status"),
                 "risk_flag": c.get("inventory", {}).get("risk_flag"),
                 "available_to_sell": c.get("signals", {}).get("available_to_sell"),
+                "total_returns": c.get("signals", {}).get("total_returns"),
             }
             for c in payload.get("candidates", [])
         ],

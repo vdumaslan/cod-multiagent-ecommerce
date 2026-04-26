@@ -10,6 +10,8 @@ export default defineConfig({
       "/pipeline": "http://127.0.0.1:8000",
       "/orchestrate": "http://127.0.0.1:8000",
       "/debate": "http://127.0.0.1:8000",
+      "/catalog": "http://127.0.0.1:8000",
+      "/retrieval": "http://127.0.0.1:8000",
     },
   },
 });

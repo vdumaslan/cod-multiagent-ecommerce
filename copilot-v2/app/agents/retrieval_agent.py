@@ -32,6 +32,7 @@ class RetrievalConfig:
     max_seq_length: int = MAX_SEQ_LENGTH
     use_prefixes: bool = USE_PREFIXES
     top_k: int = 10
+    min_score: float = 0.0
 
 
 @dataclass
@@ -122,17 +123,20 @@ class RetrievalAgent:
         (idx_dir / "index_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         print(f"Saved index to {idx_dir}")
 
-    def retrieve(self, query: str) -> list[dict[str, Any]]:
+    def retrieve(self, query: str, *, top_k: int | None = None) -> list[dict[str, Any]]:
         """Encode query and return top-k results from the index."""
         if self._index is None or self._model is None:
             raise RuntimeError("No index loaded. Call load_index() or build_index() first.")
         q = (QUERY_PREFIX + query) if self.config.use_prefixes else query
         q_emb = self._model.encode([q], normalize_embeddings=True, show_progress_bar=False)
         q_emb = np.array(q_emb, dtype="float32")
-        scores, indices = self._index.search(q_emb, self.config.top_k)
+        k = int(top_k) if top_k is not None else int(self.config.top_k)
+        scores, indices = self._index.search(q_emb, k)
         results = []
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0:
+                continue
+            if float(score) < float(self.config.min_score or 0.0):
                 continue
             entry = dict(self._corpus[idx])
             entry["retrieval_score"] = float(score)

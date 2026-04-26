@@ -20,8 +20,11 @@ _SYSTEM_REVISION = (
 
 _FEW_SHOT = (
     "FORMAT-ONLY examples (do not use these product_ids):\n"
-    '{"proposed_actions":[{"product_id":"EXAMPLE_1","action_type":"reprice","recommended_price_change_pct":2.5}],'
-    '"key_claims":["..."],"concerns":["..."]}\n'
+    '{"proposed_actions":['
+    '{"product_id":"EXAMPLE_1","action_type":"reprice","recommended_price_change_pct":2.5},'
+    '{"product_id":"EXAMPLE_2","action_type":"hold","recommended_price_change_pct":0.0},'
+    '{"product_id":"EXAMPLE_3","action_type":"promote","recommended_price_change_pct":0.0}'
+    '],"key_claims":["..."],"concerns":["..."]}\n'
 )
 
 
@@ -62,6 +65,7 @@ def build_messages(
     slim_candidates = [
         {
             "product_id": c.get("product_id"),
+            "suggested_action": c.get("suggested_action"),
             "pricing_source": c.get("pricing", {}).get("source"),
             "recommended_price_change_pct": c.get("recommended_price_change_pct", 0.0),
             "sentiment": {k: c.get("sentiment", {}).get(k) for k in ("p_pos", "p_neu", "p_neg", "n_reviews")},
@@ -69,12 +73,14 @@ def build_messages(
             "risk_flag": c.get("inventory", {}).get("risk_flag"),
             "available_to_sell": c.get("signals", {}).get("available_to_sell"),
             "mean_daily_revenue": c.get("signals", {}).get("mean_daily_revenue"),
+            "total_returns": c.get("signals", {}).get("total_returns"),
             "retrieval_score": c.get("evidence", {}).get("retrieval_score"),
         }
         for c in payload.get("candidates", [])
     ]
     slim_payload = {
         "goal": payload.get("goal"),
+        "objective": (payload.get("constraints") or {}).get("objective", "revenue"),
         "constraints": payload.get("constraints"),
         "candidates": slim_candidates,
         "baseline_actions": [
@@ -102,6 +108,7 @@ def build_messages(
                 + "Return STRICT JSON only. No markdown, no explanation, no extra text.\n"
                 f"Keys: proposed_actions (top {top_k}), key_claims (<=5 strings), concerns (<=5 strings).\n"
                 "Each proposed_action must have: product_id (string), action_type (string), recommended_price_change_pct (number).\n"
+                "Allowed action_type values: reprice, hold, promote, investigate, restock.\n"
                 "Use only product_ids from candidates below.\n"
                 f"INPUT_JSON:\n{json.dumps(slim_payload)}"
             ),

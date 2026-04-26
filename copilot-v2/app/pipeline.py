@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +13,7 @@ from app.agents.pricing_agent import PricingAgent
 from app.agents.sentiment_agent import SentimentAgent
 from app.agents.inventory_agent import InventoryAgent
 from app.agents.orchestrator.orchestrator import ACJConfig, run_acj, continue_acj, run_judge_only
-from app.llm import OllamaClient
+from app.llm import OllamaClient, extract_json_object
 
 SNAPSHOT_ID = "38710839ca6e1009"
 
@@ -36,6 +37,12 @@ class Pipeline:
         root = artifacts_root or Path(__file__).resolve().parent.parent / "artifacts"
 
         self.retrieval = RetrievalAgent(snapshot_id=snapshot_id, artifacts_root=root)
+        min_score_env = os.environ.get("COPILOT_RETRIEVAL_MIN_SCORE", "").strip()
+        if min_score_env:
+            try:
+                self.retrieval.config.min_score = float(min_score_env)
+            except Exception:
+                pass
         self.retrieval.load_index()
 
         self.pricing = PricingAgent(snapshot_id=snapshot_id, artifacts_root=root)
@@ -47,10 +54,247 @@ class Pipeline:
             root / "indexes" / snapshot_id / "dense" / "intfloat_e5-large-v2" / "index_meta.json"
         )
         self._runs_root = root / "runs" / snapshot_id
+        self._catalog_summary_cache: dict[str, Any] | None = None
+        self._catalog_facets_cache: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def catalog_summary(self) -> dict[str, Any]:
+        """Return a lightweight snapshot of what's in the catalog for UI guidance."""
+        if self._catalog_summary_cache is not None:
+            return self._catalog_summary_cache
+
+        # Corpus is loaded by RetrievalAgent.load_index() at init.
+        docs = self.retrieval._corpus or []
+        cat_counts: dict[str, int] = {}
+        sub_counts: dict[str, int] = {}
+
+        def _inc(m: dict[str, int], k: str) -> None:
+            k = str(k or "").strip()
+            if not k:
+                return
+            m[k] = int(m.get(k, 0)) + 1
+
+        for d in docs:
+            txt = str((d or {}).get("product_document") or "")
+            m = re.search(r"^category:\s*(.*)$", txt, flags=re.M)
+            if m:
+                _inc(cat_counts, m.group(1))
+            m2 = re.search(r"^subcategory:\s*(.*)$", txt, flags=re.M)
+            if m2:
+                _inc(sub_counts, m2.group(1))
+
+        top_categories = sorted(cat_counts.items(), key=lambda x: x[1], reverse=True)[:12]
+        top_subcategories = sorted(sub_counts.items(), key=lambda x: x[1], reverse=True)[:12]
+        self._catalog_summary_cache = {
+            "snapshot_id": self.snapshot_id,
+            "n_products": len(docs),
+            "top_categories": [{"name": k, "count": v} for k, v in top_categories],
+            "top_subcategories": [{"name": k, "count": v} for k, v in top_subcategories],
+        }
+        return self._catalog_summary_cache
+
+    def catalog_facets(self) -> dict[str, Any]:
+        """Return category → subcategory facets (cached) for guided UI filtering."""
+        if self._catalog_facets_cache is not None:
+            return self._catalog_facets_cache
+
+        docs = self.retrieval._corpus or []
+        cat_counts: dict[str, int] = {}
+        sub_by_cat: dict[str, dict[str, int]] = {}
+
+        def _get_field(txt: str, key: str) -> str:
+            m = re.search(rf"^{re.escape(key)}:\s*(.*)$", txt, flags=re.M)
+            return (m.group(1).strip() if m else "")
+
+        for d in docs:
+            txt = str((d or {}).get("product_document") or "")
+            cat = _get_field(txt, "category")
+            sub = _get_field(txt, "subcategory")
+            if cat:
+                cat_counts[cat] = int(cat_counts.get(cat, 0)) + 1
+            if cat and sub:
+                sub_by_cat.setdefault(cat, {})
+                sub_by_cat[cat][sub] = int(sub_by_cat[cat].get(sub, 0)) + 1
+
+        categories = sorted(cat_counts.items(), key=lambda x: x[1], reverse=True)
+        # Keep payload reasonably small; UI can still search within these.
+        categories = categories[:50]
+        subcats_by_category: dict[str, list[dict[str, Any]]] = {}
+        for cat, _ in categories:
+            subcounts = sub_by_cat.get(cat, {})
+            top_subs = sorted(subcounts.items(), key=lambda x: x[1], reverse=True)[:50]
+            subcats_by_category[cat] = [{"name": k, "count": v} for k, v in top_subs]
+
+        self._catalog_facets_cache = {
+            "snapshot_id": self.snapshot_id,
+            "n_products": len(docs),
+            "categories": [{"name": k, "count": v} for k, v in categories],
+            "subcategories_by_category": subcats_by_category,
+        }
+        return self._catalog_facets_cache
+
+    def retrieval_preview(
+        self,
+        *,
+        goal: str,
+        constraints: dict[str, Any] | None = None,
+        top_k_preview: int = 5,
+    ) -> dict[str, Any]:
+        """Preview retrieval results (fast) so UI can show match count and examples."""
+        constraints = constraints or {}
+        # Use the same rewrite behavior as pipeline.
+        rewrite = self._rewrite_goal_for_retrieval(goal)
+        retrieval_query = str(rewrite.get("retrieval_query") or "").strip()
+        clarifying_question = str(rewrite.get("clarifying_question") or "").strip() or None
+
+        if rewrite.get("used") and clarifying_question and not retrieval_query:
+            return {
+                "ok": True,
+                "goal": goal,
+                "retrieval_query": "",
+                "clarifying_question": clarifying_question,
+                "min_score": float(self.retrieval.config.min_score or 0.0),
+                "n_candidates_above_min_score": 0,
+                "top_candidates": [],
+            }
+
+        q = retrieval_query or goal
+        results = self.retrieval.retrieve(q, top_k=max(1, min(int(top_k_preview), 20)))
+
+        def _field(doc: str, key: str) -> str:
+            m = re.search(rf"^{re.escape(key)}:\\s*(.*)$", doc, flags=re.M)
+            return (m.group(1).strip() if m else "")
+
+        cands = []
+        for r in results:
+            doc = str(r.get("product_document") or "")
+            cands.append({
+                "product_id": str(r.get("product_id") or ""),
+                "score": float(r.get("retrieval_score") or 0.0),
+                "title": _field(doc, "title")[:140],
+                "category": _field(doc, "category")[:80],
+                "subcategory": _field(doc, "subcategory")[:80],
+            })
+
+        return {
+            "ok": True,
+            "goal": goal,
+            "retrieval_query": q,
+            "clarifying_question": clarifying_question,
+            "min_score": float(self.retrieval.config.min_score or 0.0),
+            "n_candidates_above_min_score": len(results),
+            "top_candidates": cands,
+        }
+
+    def _rewrite_goal_for_retrieval(self, goal: str) -> dict[str, Any]:
+        """Rewrite a broad business goal into a product-oriented retrieval query.
+
+        This is intentionally lightweight and safe:
+        - If rewriting is disabled or fails, we fall back to the original goal.
+        - Output is persisted to runs as `0_query_rewrite.json` for debugging.
+        """
+        goal = str(goal or "").strip()
+        enabled = os.environ.get("COPILOT_ENABLE_QUERY_REWRITE", "1").strip().lower() not in {"0", "false", "no"}
+        model = os.environ.get("COPILOT_QUERY_REWRITE_MODEL", "qwen2.5:7b-instruct").strip() or "qwen2.5:7b-instruct"
+        if not enabled or not goal:
+            return {"ok": True, "used": False, "original_goal": goal, "retrieval_query": goal}
+
+        # Heuristic: only rewrite when the goal looks broad/strategy-level.
+        broad_markers = [
+            "increase revenue", "increase profit", "grow revenue", "grow sales", "boost sales",
+            "improve business", "improve performance", "increase conversion", "increase margin",
+            "reduce returns", "reduce churn", "reduce complaints",
+        ]
+        goal_l = goal.lower()
+        # Treat goals like "grow revenue for Baking Cups ..." as already specific enough.
+        has_specific_for_phrase = bool(
+            re.search(r"\bfor\s+[a-z0-9][a-z0-9&'\\-]{3,}(?:\s+[a-z0-9][a-z0-9&'\\-]{2,}){0,4}\b", goal_l)
+        )
+        if has_specific_for_phrase:
+            # Avoid rewriting if user already provided a concrete product/category after "for".
+            return {"ok": True, "used": False, "original_goal": goal, "retrieval_query": goal}
+
+        is_broad = any(m in goal_l for m in broad_markers) and len(goal.split()) <= 12
+        if not is_broad:
+            return {"ok": True, "used": False, "original_goal": goal, "retrieval_query": goal}
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You rewrite vague business goals into product-oriented search queries for an e-commerce catalog. "
+                    "Output STRICT JSON only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Rewrite the goal into a retrieval query that would match product titles/descriptions.\n"
+                    "Return JSON with keys:\n"
+                    "- retrieval_query (string)\n"
+                    "- clarifying_question (string, optional)\n"
+                    "- notes (string, optional)\n"
+                    "Rules:\n"
+                    "- Keep retrieval_query short (<= 12 words).\n"
+                    "- Prefer concrete product/category terms; avoid business jargon.\n"
+                    "- If goal is too vague, set retrieval_query to \"\" and provide a clarifying_question.\n"
+                    f"GOAL: {goal}"
+                ),
+            },
+        ]
+        raw_text = ""
+        try:
+            res = self.ollama.chat(model=model, messages=messages, temperature=0.0, num_predict=200, seed=17)
+            raw_text = res.content
+            obj = extract_json_object(res.content)
+            rq = str(obj.get("retrieval_query") or "").strip()
+            cq = str(obj.get("clarifying_question") or "").strip()
+            notes = str(obj.get("notes") or "").strip()
+            if not rq and not cq:
+                cq = "What product category (or example SKU) are you trying to improve revenue for?"
+            return {
+                "ok": True,
+                "used": True,
+                "original_goal": goal,
+                "retrieval_query": rq,
+                "clarifying_question": cq,
+                "notes": notes,
+                "raw": raw_text[:1500],
+                "model": model,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "used": False,
+                "original_goal": goal,
+                "retrieval_query": goal,
+                "error": str(e)[:200],
+                "raw": raw_text[:500],
+                "model": model,
+            }
+
+    def _suggest_action(
+        self,
+        *,
+        inventory_status: str,
+        risk_flag: bool,
+        p_neg: float,
+        total_returns: float,
+    ) -> str:
+        """Lightweight action playbook derived from runtime signals."""
+        inv = (inventory_status or "unknown").lower()
+        if inv in {"low_stock", "stockout_risk"}:
+            return "hold"
+        if inv == "overstocked" and (p_neg >= 0.4 or total_returns >= 5):
+            return "investigate"
+        if inv == "overstocked":
+            return "promote"
+        if risk_flag and (p_neg >= 0.5 or total_returns >= 7):
+            return "investigate"
+        return "reprice"
 
     def _enrich(
         self,
@@ -59,7 +303,19 @@ class Pipeline:
         horizon_days: int,
         enable_pricing: bool,
         enable_sentiment: bool,
+        constraints: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        constraints = constraints or {}
+        exclude_low_stock = bool(constraints.get("exclude_low_stock", False))
+        exclude_stockout_risk = bool(constraints.get("exclude_stockout_risk", False))
+        do_not_raise_if_p_neg_above = constraints.get("do_not_raise_if_p_neg_above", None)
+        try:
+            do_not_raise_if_p_neg_above_f = (
+                float(do_not_raise_if_p_neg_above) if do_not_raise_if_p_neg_above is not None else None
+            )
+        except Exception:
+            do_not_raise_if_p_neg_above_f = None
+
         enriched = []
         for c in candidates:
             pid = str(c.get("product_id") or "")
@@ -89,6 +345,7 @@ class Pipeline:
                 if sentiment_result.get("found")
                 else {}
             )
+            p_neg = float(sentiment_info.get("p_neg") or 0.0)
 
             # Inventory
             inv = self.inventory.lookup(pid)
@@ -111,6 +368,8 @@ class Pipeline:
                 "rules_fired": inv.get("rules_fired", []) if "rules_fired" in inv else [],
             }
 
+            stock_status = str(inventory_info.get("stock_status") or "unknown").lower()
+
             # Evidence from retrieval
             retrieval_score = float(c.get("retrieval_score") or 0.0)
             doc_text = str(c.get("product_document") or "")
@@ -128,9 +387,28 @@ class Pipeline:
                 "safety_stock_units": safety,
             }
 
+            suggested_action = self._suggest_action(
+                inventory_status=str(inventory_info.get("stock_status") or "unknown"),
+                risk_flag=bool(inventory_info.get("risk_flag", False)),
+                p_neg=p_neg,
+                total_returns=returns,
+            )
+
+            # Constraint filters / guardrails (pre-LLM)
+            # These keep obviously-invalid repricing recommendations from reaching the debate.
+            if exclude_stockout_risk and stock_status == "stockout_risk":
+                suggested_action = "restock"
+                price_change = 0.0
+            if exclude_low_stock and stock_status == "low_stock":
+                suggested_action = "hold"
+                price_change = 0.0
+            if do_not_raise_if_p_neg_above_f is not None and p_neg > do_not_raise_if_p_neg_above_f and price_change > 0.0:
+                price_change = 0.0
+
             enriched.append({
                 "product_id": pid,
                 "action_type": "reprice",
+                "suggested_action": suggested_action,
                 "recommended_price_change_pct": price_change,
                 "pricing": pricing_info,
                 "sentiment": sentiment_info,
@@ -203,7 +481,10 @@ class Pipeline:
         run_dir = self._runs_root / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        candidates_raw = self.retrieval.retrieve(goal)
+        rewrite = self._rewrite_goal_for_retrieval(goal)
+        self._write_stage(run_dir, "0_query_rewrite.json", rewrite)
+        retrieval_query = str(rewrite.get("retrieval_query") or "").strip() or goal
+        candidates_raw = self.retrieval.retrieve(retrieval_query)
         self._write_stage(run_dir, "1_retrieval.json", candidates_raw)
 
         enriched = self._enrich(
@@ -211,6 +492,7 @@ class Pipeline:
             horizon_days=horizon_days,
             enable_pricing=enable_pricing,
             enable_sentiment=enable_sentiment,
+            constraints=constraints,
         )
         self._write_stage(run_dir, "2_enriched.json", enriched)
 
@@ -222,6 +504,7 @@ class Pipeline:
             "snapshot_id": self.snapshot_id,
             "owner_id": owner_id,
             "retrieval_index_meta": self._index_meta,
+            "query_rewrite": {k: rewrite.get(k) for k in ("used", "retrieval_query", "clarifying_question", "notes")},
             "pricing": {"wired": enable_pricing, "source": "cache"},
             "sentiment": {"wired": enable_sentiment, "source": "cache"},
             "inventory": {"wired": True, "mode": "rules_v1"},
@@ -340,7 +623,10 @@ class Pipeline:
         self._write_stage(run_dir, "0_config.json", config)
 
         # 1. Retrieve candidates
-        candidates_raw = self.retrieval.retrieve(goal)
+        rewrite = self._rewrite_goal_for_retrieval(goal)
+        self._write_stage(run_dir, "0_query_rewrite.json", rewrite)
+        retrieval_query = str(rewrite.get("retrieval_query") or "").strip() or goal
+        candidates_raw = self.retrieval.retrieve(retrieval_query)
         self._write_stage(run_dir, "1_retrieval.json", candidates_raw)
 
         # 2. Enrich with specialist signals
@@ -349,6 +635,7 @@ class Pipeline:
             horizon_days=horizon_days,
             enable_pricing=enable_pricing,
             enable_sentiment=enable_sentiment,
+            constraints=constraints,
         )
         enriched_by_pid = {c["product_id"]: c for c in enriched}
         self._write_stage(run_dir, "2_enriched.json", enriched)
@@ -389,6 +676,7 @@ class Pipeline:
             "snapshot_id": self.snapshot_id,
             "owner_id": owner_id,
             "retrieval_index_meta": self._index_meta,
+            "query_rewrite": {k: rewrite.get(k) for k in ("used", "retrieval_query", "clarifying_question", "notes")},
             "pricing": {"wired": enable_pricing, "source": "cache"},
             "sentiment": {"wired": enable_sentiment, "source": "cache"},
             "inventory": {"wired": True, "mode": "rules_v1"},

@@ -1,6 +1,7 @@
 """Judge role: synthesize debate into ranked plans."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.llm import OllamaClient, OllamaChatResult, extract_json_object, validate_ranked_actions, SchemaError
@@ -9,7 +10,20 @@ from app.llm import OllamaClient, OllamaChatResult, extract_json_object, validat
 _SYSTEM = (
     "You are the Judge. Synthesize the Advocate and Critic into a final ranked action plan. "
     "Output STRICT JSON only with key ranked_actions. "
-    "Use only candidate product_ids. Respect max_abs_price_change_pct."
+    "Use only candidate product_ids. Respect max_abs_price_change_pct. "
+    "Allowed action_type values: reprice, hold, promote, investigate, restock. "
+    "IMPORTANT decision rules:\n"
+    "- If a candidate has inventory.stock_status in {low_stock, stockout_risk} OR risk_flag=true, default to action_type='hold' (or 'restock' if stockout_risk). "
+    "Do NOT recommend raising price or running promotions for low-stock items.\n"
+    "- Only override suggested_action if you can cite a specific provided signal in rationale_bullets.\n"
+    "- Use recommended_price_change_pct only for action_type='reprice'. For other action types set it to 0.0."
+    "\n"
+    "Objective handling (from constraints.objective):\n"
+    "- revenue: favor actions that plausibly increase sales volume or price where safe.\n"
+    "- profit: be conservative on discounting; prefer hold/investigate unless signals support repricing.\n"
+    "- clear_inventory: for overstocked items, favor promote or reprice down when safe.\n"
+    "- reduce_returns: for high returns/negative sentiment, favor investigate/promote fixes over repricing.\n"
+    "- avoid_stockouts: for low_stock/stockout_risk, favor hold/restock (already required above).\n"
 )
 
 _FEW_SHOT = (
@@ -42,7 +56,7 @@ def build_messages(
     return [
         {"role": "system", "content": _SYSTEM},
         {"role": "user", "content": f"prompt_style={style} prompt_version={prompt_version}\n" + cot + few_shot + extra + "Return JSON only.\n"},
-        {"role": "user", "content": f"INPUT_JSON:\n{payload}"},
+        {"role": "user", "content": f"INPUT_JSON:\n{json.dumps(payload)}"},
     ]
 
 
@@ -118,5 +132,29 @@ def run(
         raw["used_baseline_fallback"] = True
         final_actions, fallback = _fallback_from_baseline(baseline_actions, allowed, top_k)
         return final_actions, raw, fallback
+
+    # Post-process for inventory safety: do not let the judge suggest price/promo actions
+    # for low-stock / stockout candidates even if the LLM ignores instructions.
+    by_pid = {
+        str(c.get("product_id")): (c or {})
+        for c in (payload.get("candidates") or [])
+        if (c or {}).get("product_id")
+    }
+    for a in final_actions:
+        pid = str(a.get("product_id") or "")
+        cand = by_pid.get(pid, {})
+        inv = (cand.get("inventory") or {})
+        stock_status = str(inv.get("stock_status") or "unknown").lower()
+        risk_flag = bool(inv.get("risk_flag", False))
+        suggested = str(cand.get("suggested_action") or "").strip().lower()
+
+        if stock_status == "stockout_risk" or (stock_status in {"low_stock"} or risk_flag):
+            # Default to hold (or restock for stockout_risk) regardless of LLM choice.
+            a["action_type"] = "restock" if stock_status == "stockout_risk" else "hold"
+            a["recommended_price_change_pct"] = 0.0
+        elif suggested in {"hold", "restock", "promote", "investigate"} and a.get("action_type") == "reprice":
+            # If the playbook strongly suggests a non-reprice action, allow it to override reprice.
+            a["action_type"] = suggested
+            a["recommended_price_change_pct"] = 0.0
 
     return final_actions, raw, False

@@ -9,6 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.schemas import (
     HealthResponse,
+    CatalogSummaryResponse,
+    CatalogFacetsResponse,
+    RetrievalPreviewRequest,
+    RetrievalPreviewResponse,
     OrchestrateRequest,
     OrchestrateResponse,
     PipelineRequest,
@@ -60,6 +64,25 @@ def health() -> HealthResponse:
         has_inventory_cache=bool(p.inventory._cache),
         has_retrieval_index=p.retrieval._index is not None,
     )
+
+
+@app.get("/catalog/summary", response_model=CatalogSummaryResponse)
+def catalog_summary() -> CatalogSummaryResponse:
+    p = get_pipeline()
+    return CatalogSummaryResponse(ok=True, **p.catalog_summary())
+
+
+@app.get("/catalog/facets", response_model=CatalogFacetsResponse)
+def catalog_facets() -> CatalogFacetsResponse:
+    p = get_pipeline()
+    return CatalogFacetsResponse(ok=True, **p.catalog_facets())
+
+
+@app.post("/retrieval/preview", response_model=RetrievalPreviewResponse)
+def retrieval_preview(req: RetrievalPreviewRequest) -> RetrievalPreviewResponse:
+    p = get_pipeline()
+    out = p.retrieval_preview(goal=req.goal, constraints=req.constraints.model_dump(), top_k_preview=req.top_k_preview)
+    return RetrievalPreviewResponse(**out)
 
 
 @app.post("/pipeline", response_model=PipelineResponse)

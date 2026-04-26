@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 
 class Constraints(BaseModel):
     max_abs_price_change_pct: float = 10.0
+    objective: Literal["revenue", "profit", "clear_inventory", "reduce_returns", "avoid_stockouts"] = "revenue"
+    do_not_raise_if_p_neg_above: float | None = None
+    exclude_low_stock: bool = False
+    exclude_stockout_risk: bool = False
 
 
 class OrchestrateRequest(BaseModel):
@@ -90,6 +94,7 @@ class ActionSignals(BaseModel):
 class RankedAction(BaseModel):
     product_id: str
     action_type: str
+    suggested_action: str = ""
     recommended_price_change_pct: float
     pricing: dict[str, Any]
     sentiment: dict[str, Any]
@@ -106,6 +111,7 @@ class TraceInfo(BaseModel):
     snapshot_id: str
     owner_id: str
     retrieval_index_meta: str = ""
+    query_rewrite: dict[str, Any] = Field(default_factory=dict)
     pricing: dict[str, Any] = Field(default_factory=dict)
     sentiment: dict[str, Any] = Field(default_factory=dict)
     inventory: dict[str, Any] = Field(default_factory=dict)
@@ -192,3 +198,48 @@ class HealthResponse(BaseModel):
     has_sentiment_cache: bool
     has_inventory_cache: bool
     has_retrieval_index: bool
+
+
+class CatalogBucket(BaseModel):
+    name: str
+    count: int
+
+
+class CatalogSummaryResponse(BaseModel):
+    ok: bool
+    snapshot_id: str
+    n_products: int
+    top_categories: list[CatalogBucket] = Field(default_factory=list)
+    top_subcategories: list[CatalogBucket] = Field(default_factory=list)
+
+
+class CatalogFacetsResponse(BaseModel):
+    ok: bool
+    snapshot_id: str
+    n_products: int
+    categories: list[CatalogBucket] = Field(default_factory=list)
+    subcategories_by_category: dict[str, list[CatalogBucket]] = Field(default_factory=dict)
+
+
+class RetrievalPreviewCandidate(BaseModel):
+    product_id: str
+    score: float
+    title: str = ""
+    category: str = ""
+    subcategory: str = ""
+
+
+class RetrievalPreviewRequest(BaseModel):
+    goal: str
+    constraints: Constraints = Field(default_factory=Constraints)
+    top_k_preview: int = 5
+
+
+class RetrievalPreviewResponse(BaseModel):
+    ok: bool
+    goal: str
+    retrieval_query: str = ""
+    clarifying_question: str | None = None
+    min_score: float = 0.0
+    n_candidates_above_min_score: int = 0
+    top_candidates: list[RetrievalPreviewCandidate] = Field(default_factory=list)

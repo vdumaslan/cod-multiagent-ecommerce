@@ -222,7 +222,9 @@ def main() -> None:
         chunk = X_all[i : i + bs]
         preds.extend(model.predict(chunk).astype(float).tolist())
     pred = np.asarray(preds, dtype=float)
-    pred = np.clip(pred, -float(args.policy_bound), float(args.policy_bound))
+    # Soft-cap instead of hard clipping to avoid boundary pileups at +/- policy_bound.
+    b = float(args.policy_bound)
+    pred = b * np.tanh(pred / b)
 
     out = pd.DataFrame({"product_id": df["product_id"].astype(str), "predicted_price_change_pct": pred})
     # If table contains multiple rows per product_id (should not, but safe), average.

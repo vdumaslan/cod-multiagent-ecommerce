@@ -22,28 +22,54 @@ import pandas as pd
 
 SNAPSHOT_ID = "38710839ca6e1009"
 
-LOW_STOCK_AVAILABLE_UNITS = 5.0
-OVERSTOCK_ON_HAND_UNITS = 50.0
-LOW_REVENUE_USD_PER_DAY = 1.0
-HIGH_RETURNS_UNITS = 10.0
+
+def _quantile(x: pd.Series, q: float, default: float) -> float:
+    try:
+        v = float(x.quantile(q))
+        if v != v:  # NaN
+            return float(default)
+        return v
+    except Exception:
+        return float(default)
 
 
-def _classify_row(row: pd.Series) -> tuple[str, bool]:
+def _classify_row(row: pd.Series, *, thresholds: dict[str, float]) -> tuple[str, bool, list[str]]:
+    """Dataset-aware rule classifier.
+
+    Rules are intentionally simple and percentile-based to avoid degenerate outputs when synthetic
+    distributions shift.
+    """
     on_hand = float(row.get("on_hand_units", 0) or 0)
     safety = float(row.get("safety_stock_units", 0) or 0)
     available = max(on_hand - safety, 0.0)
     revenue = float(row.get("mean_daily_revenue", 0) or 0)
     returns = float(row.get("total_returns", 0) or 0)
 
+    rules: list[str] = []
+
+    # Stockout risk: fire if there is no sellable stock.
     if available <= 0.0 or on_hand <= safety:
-        return "stockout_risk", True
-    if available <= LOW_STOCK_AVAILABLE_UNITS:
-        return "low_stock", True
-    if on_hand >= OVERSTOCK_ON_HAND_UNITS and (
-        revenue <= LOW_REVENUE_USD_PER_DAY or returns >= HIGH_RETURNS_UNITS
+        rules.append("stockout_risk")
+        return "stockout_risk", True, rules
+
+    # Low stock: bottom quantile of available_to_sell.
+    if available <= thresholds["low_stock_available_to_sell_q10"]:
+        rules.append("low_stock_available_to_sell")
+        return "low_stock", True, rules
+
+    # Overstock: top quantile of on_hand AND (bottom quantile of revenue OR top quantile of returns).
+    if on_hand >= thresholds["overstock_on_hand_q90"] and (
+        revenue <= thresholds["overstock_low_revenue_q20"] or returns >= thresholds["overstock_high_returns_q90"]
     ):
-        return "overstocked", True
-    return "healthy", False
+        if on_hand >= thresholds["overstock_on_hand_q90"]:
+            rules.append("overstock_on_hand_high")
+        if revenue <= thresholds["overstock_low_revenue_q20"]:
+            rules.append("overstock_low_revenue")
+        if returns >= thresholds["overstock_high_returns_q90"]:
+            rules.append("overstock_high_returns")
+        return "overstocked", True, rules
+
+    return "healthy", False, rules
 
 
 def main() -> None:
@@ -73,9 +99,18 @@ def main() -> None:
 
     df = skus.merge(sales_agg, on="product_id", how="left").fillna(0)
 
+    # Dataset-aware thresholds to prevent degenerate class distributions.
+    available_to_sell = (df["on_hand_units"].astype(float) - df["safety_stock_units"].astype(float)).clip(lower=0.0)
+    thresholds = {
+        "low_stock_available_to_sell_q10": _quantile(available_to_sell, 0.10, 1.0),
+        "overstock_on_hand_q90": _quantile(df["on_hand_units"].astype(float), 0.90, 50.0),
+        "overstock_low_revenue_q20": _quantile(df["mean_daily_revenue"].astype(float), 0.20, 1.0),
+        "overstock_high_returns_q90": _quantile(df["total_returns"].astype(float), 0.90, 10.0),
+    }
+
     results = []
     for _, row in df.iterrows():
-        status, risk = _classify_row(row)
+        status, risk, rules = _classify_row(row, thresholds=thresholds)
         on_hand = float(row.get("on_hand_units", 0) or 0)
         safety = float(row.get("safety_stock_units", 0) or 0)
         results.append({
@@ -87,6 +122,7 @@ def main() -> None:
             "available_to_sell": max(on_hand - safety, 0.0),
             "mean_daily_revenue": float(row.get("mean_daily_revenue", 0) or 0),
             "total_returns": float(row.get("total_returns", 0) or 0),
+            "rules_fired": rules,
         })
 
     cache_df = pd.DataFrame(results)
@@ -101,10 +137,7 @@ def main() -> None:
         "source_sales": str(sales_src),
         "approach": "rule_based",
         "thresholds": {
-            "low_stock_available_units": LOW_STOCK_AVAILABLE_UNITS,
-            "overstock_on_hand_units": OVERSTOCK_ON_HAND_UNITS,
-            "low_revenue_usd_per_day": LOW_REVENUE_USD_PER_DAY,
-            "high_returns_units": HIGH_RETURNS_UNITS,
+            **thresholds,
         },
         "classes": ["stockout_risk", "low_stock", "overstocked", "healthy"],
         "rows": len(cache_df),

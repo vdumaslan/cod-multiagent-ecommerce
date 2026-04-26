@@ -29,6 +29,12 @@ async function postJson(path, body) {
   return data;
 }
 
+async function getJson(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+  return await res.json();
+}
+
 // ── Debate trace → human-readable turns ──────────────────────────────────────
 
 function formatAdvocate(adv, round) {
@@ -77,7 +83,7 @@ const mockPlans = [
 ];
 
 function buildPlansFromRanked(ranked) {
-  if (!ranked || !ranked.length) return mockPlans;
+  if (!ranked || !ranked.length) return [];
   return ranked.map((a) => {
     const pct = Number(a.recommended_price_change_pct || 0);
     const sent = a.sentiment || {};
@@ -89,11 +95,19 @@ function buildPlansFromRanked(ranked) {
       : highReturns || pNeg > 0.2
       ? "Medium"
       : "Low";
-    const retrieval = a.evidence?.retrieval_score ?? 0.7;
-    const confidence = Math.max(55, Math.min(95, Math.round(Number(retrieval) * 100)));
+    const retrieval = Number(a.evidence?.retrieval_score ?? 0);
+    const retrievalSimilarity = Math.max(0, Math.min(100, Math.round(retrieval * 100)));
+    const evidenceSnippet = a.evidence?.points?.[0]?.text || "";
+    const suggestedAction = String(a.suggested_action || a.signals?.suggested_action || "").trim();
+    const finalActionType = String(a.action_type || "reprice").trim();
     return {
       id: String(a.product_id),
-      title: `${a.action_type || "reprice"} — ${a.product_id}`,
+      title: `${finalActionType} — ${a.product_id}`,
+      finalActionType,
+      suggestedAction,
+      retrievalSimilarity,
+      retrievalScore: retrieval,
+      evidenceSnippet: evidenceSnippet ? String(evidenceSnippet).slice(0, 240) : "",
       actions: [
         `Pricing: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% (source=${a?.pricing?.source || "unknown"})`,
         sent.n_reviews ? `Sentiment (n=${sent.n_reviews}): +${Number(sent.p_pos || 0).toFixed(2)} ~${Number(sent.p_neu || 0).toFixed(2)} -${Number(sent.p_neg || 0).toFixed(2)}` : "Sentiment: (n/a)",
@@ -101,9 +115,9 @@ function buildPlansFromRanked(ranked) {
         ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
         ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
       ].slice(0, 8),
-      impactScore: Math.max(50, Math.min(99, Math.round(confidence * 0.92))),
+      impactScore: Math.max(50, Math.min(99, Math.round(Math.max(55, Math.min(95, retrievalSimilarity)) * 0.92))),
       riskLevel,
-      confidence,
+      confidence: retrievalSimilarity,
     };
   });
 }
@@ -125,8 +139,31 @@ export default function App() {
   const [saveStatusMessage, setSaveStatusMessage] = useState("");
   const [apiHealth, setApiHealth] = useState("checking");
   const [plans, setPlans] = useState([]);
+  const [resultsMessage, setResultsMessage] = useState("");
   const [pipelineResult, setPipelineResult] = useState(null);
   const [llmRunningLabel, setLlmRunningLabel] = useState("");
+  const [clarifyingQuestion, setClarifyingQuestion] = useState("");
+  const [rewriteNotes, setRewriteNotes] = useState("");
+  const [catalogSummary, setCatalogSummary] = useState(null);
+  const [catalogFacets, setCatalogFacets] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedSubcategory, setSelectedSubcategory] = useState("");
+  const [matchPreview, setMatchPreview] = useState(null);
+  const [runContext, setRunContext] = useState(null);
+  const [horizonDays, setHorizonDays] = useState(7);
+  const [topNActions, setTopNActions] = useState(3);
+  const [maxAbsPriceChangePct, setMaxAbsPriceChangePct] = useState(10);
+  const [objective, setObjective] = useState("revenue");
+  const [excludeLowStock, setExcludeLowStock] = useState(false);
+  const [excludeStockoutRisk, setExcludeStockoutRisk] = useState(false);
+  const [doNotRaiseIfPNegAbove, setDoNotRaiseIfPNegAbove] = useState("");
+
+  const parseOptionalFloat = (v) => {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  };
 
   // Debate state across N rounds
   const [roundNumber, setRoundNumber] = useState(1);
@@ -155,6 +192,62 @@ export default function App() {
     const id = setInterval(check, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getJson("/catalog/summary")
+      .then((d) => {
+        if (!cancelled && d && d.ok) setCatalogSummary(d);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getJson("/catalog/facets")
+      .then((d) => {
+        if (!cancelled && d && d.ok) setCatalogFacets(d);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Debounced match preview (retrieval-only)
+  useEffect(() => {
+    const scopeHint = [selectedCategory, selectedSubcategory].filter(Boolean).join(" / ");
+    const goal = query.trim();
+    const scopedGoalForPreview = scopeHint ? `${goal} (scope: ${scopeHint})` : goal;
+    if (!goal) {
+      setMatchPreview(null);
+      return undefined;
+    }
+    const t = setTimeout(() => {
+      postJson("/retrieval/preview", {
+        goal: scopedGoalForPreview,
+        top_k_preview: 5,
+        constraints: {
+          max_abs_price_change_pct: maxAbsPriceChangePct,
+          objective,
+          exclude_low_stock: excludeLowStock,
+          exclude_stockout_risk: excludeStockoutRisk,
+          do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+        },
+      })
+        .then((d) => setMatchPreview(d))
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [
+    query,
+    selectedCategory,
+    selectedSubcategory,
+    maxAbsPriceChangePct,
+    objective,
+    excludeLowStock,
+    excludeStockoutRisk,
+    doNotRaiseIfPNegAbove,
+  ]);
 
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
@@ -185,12 +278,42 @@ export default function App() {
     if (!query.trim()) return;
     setIsLoading(true);
     setPipelineResult(null);
+    setResultsMessage("");
+    setClarifyingQuestion("");
+    setRewriteNotes("");
     dispatchPipeline({ type: "RESET" });
     setView("pipeline");
 
-    postJson("/pipeline", {
+    const scopeHint = [selectedCategory, selectedSubcategory].filter(Boolean).join(" / ");
+    const scopedGoal = scopeHint ? `${query.trim()} (scope: ${scopeHint})` : query.trim();
+    setRunContext({
       goal: query.trim(),
+      scoped_goal: scopedGoal,
+      selected_category: selectedCategory || "",
+      selected_subcategory: selectedSubcategory || "",
+      objective,
+      horizon_days: horizonDays,
+      top_n_actions: topNActions,
+      max_abs_price_change_pct: maxAbsPriceChangePct,
+      exclude_low_stock: excludeLowStock,
+      exclude_stockout_risk: excludeStockoutRisk,
+      do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+      retrieval_min_score: matchPreview?.min_score ?? null,
+      retrieval_query_preview: matchPreview?.retrieval_query ?? "",
+    });
+
+    postJson("/pipeline", {
+      goal: scopedGoal,
       owner_id: DEFAULT_OWNER_ID,
+      horizon_days: horizonDays,
+      top_n_actions: topNActions,
+      constraints: {
+        max_abs_price_change_pct: maxAbsPriceChangePct,
+        objective,
+        exclude_low_stock: excludeLowStock,
+        exclude_stockout_risk: excludeStockoutRisk,
+        do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+      },
       enable_pricing: true,
       enable_sentiment: true,
     })
@@ -217,7 +340,23 @@ export default function App() {
   useEffect(() => {
     if (view !== "pipeline" || !pipelineResult) return undefined;
     dispatchPipeline({ type: "SET_STATUS", agentName: "Inventory", status: "done" });
+
+    const cq = pipelineResult?.trace?.query_rewrite?.clarifying_question;
+    const rq = pipelineResult?.trace?.query_rewrite?.retrieval_query;
+    const used = !!pipelineResult?.trace?.query_rewrite?.used;
+    const notes = pipelineResult?.trace?.query_rewrite?.notes;
+    const shouldAsk =
+      used && typeof cq === "string" && cq.trim().length > 0 && (!rq || String(rq).trim().length === 0);
+
     const t = setTimeout(() => {
+      if (shouldAsk) {
+        setClarifyingQuestion(String(cq).trim());
+        setRewriteNotes(typeof notes === "string" ? notes.trim() : "");
+        setPipelineResult(null);
+        setIsLoading(false);
+        setView("query");
+        return;
+      }
       setIsLoading(false);
       setView("debate");
     }, 400);
@@ -242,6 +381,14 @@ export default function App() {
     postJson("/debate/start", {
       goal: query,
       owner_id: DEFAULT_OWNER_ID,
+      top_n_actions: topNActions,
+      constraints: {
+        max_abs_price_change_pct: maxAbsPriceChangePct,
+        objective,
+        exclude_low_stock: excludeLowStock,
+        exclude_stockout_risk: excludeStockoutRisk,
+        do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+      },
       enriched_candidates: pipelineResult?.enriched_candidates || [],
       baseline_actions: pipelineResult?.baseline_ranked_actions || [],
       advocate_model: "llama3.1:8b",
@@ -275,6 +422,14 @@ export default function App() {
       const data = await postJson("/debate/continue", {
         goal: query,
         owner_id: DEFAULT_OWNER_ID,
+        top_n_actions: topNActions,
+        constraints: {
+          max_abs_price_change_pct: maxAbsPriceChangePct,
+          objective,
+          exclude_low_stock: excludeLowStock,
+          exclude_stockout_risk: excludeStockoutRisk,
+          do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+        },
         enriched_candidates: pipelineResult?.enriched_candidates || [],
         baseline_actions: pipelineResult?.baseline_ranked_actions || [],
         prev_advocate: latestAdvocate || {},
@@ -313,6 +468,14 @@ export default function App() {
       const data = await postJson("/debate/continue", {
         goal: query,
         owner_id: DEFAULT_OWNER_ID,
+        top_n_actions: topNActions,
+        constraints: {
+          max_abs_price_change_pct: maxAbsPriceChangePct,
+          objective,
+          exclude_low_stock: excludeLowStock,
+          exclude_stockout_risk: excludeStockoutRisk,
+          do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+        },
         enriched_candidates: pipelineResult?.enriched_candidates || [],
         baseline_actions: pipelineResult?.baseline_ranked_actions || [],
         prev_advocate: latestAdvocate || {},
@@ -338,6 +501,14 @@ export default function App() {
       const data = await postJson("/debate/judge", {
         goal: query,
         owner_id: DEFAULT_OWNER_ID,
+        top_n_actions: topNActions,
+        constraints: {
+          max_abs_price_change_pct: maxAbsPriceChangePct,
+          objective,
+          exclude_low_stock: excludeLowStock,
+          exclude_stockout_risk: excludeStockoutRisk,
+          do_not_raise_if_p_neg_above: parseOptionalFloat(doNotRaiseIfPNegAbove),
+        },
         enriched_candidates: pipelineResult?.enriched_candidates || [],
         baseline_actions: pipelineResult?.baseline_ranked_actions || [],
         latest_advocate: latestAdvocate || {},
@@ -351,7 +522,13 @@ export default function App() {
         message: judgeContent ? judgeContent.slice(0, 600) : "Judge synthesis complete. Final ranked actions selected.",
       };
       playDebateTurns([judgeTurn], () => {
-        setPlans(buildPlansFromRanked(data.ranked_actions));
+        const built = buildPlansFromRanked(data.ranked_actions);
+        setPlans(built);
+        if (!built.length) {
+          setResultsMessage(
+            "No ranked plans were returned for this query. This can happen when retrieval finds no strong matches (or filters remove all candidates). Try adding more product/category detail to your goal, or relax constraints."
+          );
+        }
         setCanViewResults(true);
       });
     } catch {
@@ -375,7 +552,9 @@ export default function App() {
     setIsSavingPlan(false);
     setSaveStatusMessage("");
     setPlans([]);
+    setResultsMessage("");
     setPipelineResult(null);
+    setRunContext(null);
     setLatestAdvocate(null);
     setLatestCritic(null);
     setRoundNumber(1);
@@ -420,7 +599,35 @@ export default function App() {
       </div>
 
       {view === "query" && (
-        <QueryInputView query={query} setQuery={setQuery} onSubmit={handleSubmitQuery} isLoading={isLoading} />
+        <QueryInputView
+          query={query}
+          setQuery={setQuery}
+          onSubmit={handleSubmitQuery}
+          isLoading={isLoading}
+          clarifyingQuestion={clarifyingQuestion}
+          rewriteNotes={rewriteNotes}
+          catalogSummary={catalogSummary}
+          catalogFacets={catalogFacets}
+          selectedCategory={selectedCategory}
+          setSelectedCategory={setSelectedCategory}
+          selectedSubcategory={selectedSubcategory}
+          setSelectedSubcategory={setSelectedSubcategory}
+          matchPreview={matchPreview}
+          horizonDays={horizonDays}
+          setHorizonDays={setHorizonDays}
+          topNActions={topNActions}
+          setTopNActions={setTopNActions}
+          maxAbsPriceChangePct={maxAbsPriceChangePct}
+          setMaxAbsPriceChangePct={setMaxAbsPriceChangePct}
+          objective={objective}
+          setObjective={setObjective}
+          excludeLowStock={excludeLowStock}
+          setExcludeLowStock={setExcludeLowStock}
+          excludeStockoutRisk={excludeStockoutRisk}
+          setExcludeStockoutRisk={setExcludeStockoutRisk}
+          doNotRaiseIfPNegAbove={doNotRaiseIfPNegAbove}
+          setDoNotRaiseIfPNegAbove={setDoNotRaiseIfPNegAbove}
+        />
       )}
 
       {view === "pipeline" && <PipelineStatusView agents={pipeline} />}
@@ -445,7 +652,9 @@ export default function App() {
 
       {view === "results" && (
         <ResultsView
-          plans={plans.length ? plans : mockPlans}
+          plans={plans}
+          resultsMessage={resultsMessage}
+          runContext={runContext}
           selectedPlanId={selectedPlanId}
           onChoosePlan={handleChoosePlan}
           onRejectAll={handleRejectAll}
