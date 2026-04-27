@@ -523,3 +523,56 @@ These are the main reasons outputs can still feel “not reasonable” even afte
 - Keep tracking: parse retries, fallback usage, and latency (index/model load can be heavy).
 - Recommended UX: when the system is degraded (LLM down / caches missing), show explicit UI messaging and avoid producing high-confidence-looking plans.
 
+---
+
+## Post-implementation fixes (after A–G + UI redesign)
+
+These issues were identified by inspecting the two live runs after all A–G fixes were applied (snapshot `38710839ca6e1009`, queries: "Incxrease revenue for bed risers" and "Increase revenue for bed risers").
+
+### Completed
+
+- **mockPlans removed** — `mockPlans` constant in `copilot-v2/app/ui/src/App.jsx` was dead code (never used to populate the UI after E was implemented). Removed.
+- **Impact Score removed** — `impactScore` was `retrievalSimilarity * 0.92`, a meaningless transform of retrieval score. Removed from `buildPlansFromRanked` in `App.jsx` and from the results card in `ResultsView.jsx`. The results card now shows only Risk Level and Retrieval similarity.
+
+### Still outstanding
+
+**Bugs (actively wrong)**
+
+1. **Rationale hallucination** *(see Remaining issues #5)* — LLM rationale bullets contradict the actual signal values (e.g. "High returns and negative customer sentiment" when `total_returns=0` and `p_neg=0.04`). Fix: compute top 1–2 driver signals deterministically in code (e.g. highest `p_neg`, highest `total_returns`) and inject them into the prompt or render them directly in the UI so explanations are auditable regardless of what the LLM says.
+
+2. **Typo handling in query rewriter** *(new finding from live runs)* — Misspelled input (e.g. "Incxrease") passes through the rewriter unchanged (`used: false`). Retrieval still works due to embedding fuzziness, but the rewriter should flag or correct typos rather than silently forwarding them.
+
+3. **Advocate pricing direction** *(related to Remaining issues #2)* — Advocate consistently proposes ~+7% price increases regardless of what the pricing cache says (cache may suggest -5%). The advocate is not grounding its proposals in the provided `predicted_delta`. Requires prompt work to explicitly instruct the advocate to use the cache delta as its starting point.
+
+**Quality gaps**
+
+4. **Debate is not genuinely adversarial** *(related to Remaining issues #8)* — In both runs, the advocate proposed ~+7% and the judge output -5%, with no critic feedback driving the direction change. The debate currently behaves like three independent LLM calls rather than a real deliberation.
+
+5. **`suggested_action` is always "reprice"** *(related to Remaining issues #1)* — The playbook defaults to `reprice` for every candidate since all inventory is healthy and no signals are extreme. Fix D's value only surfaces on edge cases. The playbook rules need to be more sensitive to moderate signals (e.g. moderate `p_neg`, moderate returns) to produce useful variety.
+
+6. **Pricing still clusters around 7–8%** *(see Remaining issues #2)* — The tanh soft-cap (fix C) removed the ±10% pileup, but predictions still cluster at ~7–8%. Add a `large_delta` flag in the debate payload (e.g. `|pct| >= 0.7 * policy_bound`) so LLMs treat large deltas as lower-trust. Optionally add a shrinkage/calibration layer in the cache build.
+
+7. **No price-missing indicator in UI** *(related to Remaining issues #1)* — ~29.5% of products have no price. When a candidate has unknown price, the UI gives no warning, allowing LLMs to fabricate price-based rationale. Add a visible indicator in the results card when `price` is null for a candidate.
+
+8. **Plan title is not user-friendly** *(new UI finding)* — Title is currently `action_type — product_id` (e.g. "reprice — B08MCHN9TR"). Should use the product title from `evidence.points[0].text`, which is already available in the plan object as `evidenceSnippet`.
+
+**Known limitations (require new data)**
+
+9. **No COGS/margin** *(see Remaining issues #1 and #6)* — "Profit" objective is a proxy (conservative repricing framing). Already labelled as such in the UI (`"Grow profit (proxy)"`). Cannot be truly fixed without cost data.
+
+10. **Operational action details missing** *(see Remaining issues #7)* — `restock`/`promote` actions have no quantities, channels, or durations attached. Would need a more concrete playbook with parameters or downstream integrations to produce "do this tomorrow" outputs.
+
+### Suggested priority order
+
+| Priority | Item | Why |
+|---|---|---|
+| **1st** | #8 Plan title | One-line UI change. Immediately makes results more readable — product name is already available in `evidenceSnippet`. |
+| **2nd** | #2 Typo handling | Small change to the query rewriter prompt. Prevents silent bad retrieval queries without touching any other component. |
+| **3rd** | #7 Price-missing indicator | Small UI change in `ResultsView.jsx`. Prevents the most common source of fabricated rationale (LLM inventing price reasoning when price is null). |
+| **4th** | #1 Rationale hallucination | Highest visible quality impact. Fixing this also reduces the damage from #3 and #4 — even if the advocate/debate is imperfect, grounded signal display in the UI makes outputs trustworthy. Do the UI-side deterministic signals first (no backend change needed), then tighten the prompt schema. |
+| **5th** | #3 Advocate pricing direction | Prompt-only change. Once fixed, the debate becomes more coherent and #4 (debate not adversarial) may partially self-correct since the advocate will be starting from a grounded position. |
+| **6th** | #6 Pricing `large_delta` flag | No cache rebuild needed for the flag itself. Pass `large_delta=true` when `|pct| >= 0.7 * policy_bound` and update the advocate/judge prompts to treat it skeptically. Directly addresses Remaining issues #2. |
+| **7th** | #5 suggested_action variety | Requires tuning the playbook thresholds in `pipeline.py` to fire on moderate signals. Improves action diversity without any cache rebuild. |
+| **8th** | #4 Debate adversarial | Hardest to fix well — requires prompt redesign and possibly a structured turn-by-turn format. Only worth tackling after #3 is fixed (advocate needs to be grounded before debate quality matters). |
+| **Skip for now** | #9, #10 | Blocked by missing data or downstream integrations. Document as known limitations and move on. |
+

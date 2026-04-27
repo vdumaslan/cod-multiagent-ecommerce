@@ -181,6 +181,7 @@ Three things to start (two terminals + Ollama in background):
 
 Windows (PowerShell):
 ```powershell
+.venv-copilot-v2\Scripts\activate
 cd copilot-v2
 $env:COPILOT_ARTIFACTS_ROOT = "$PWD\artifacts"
 $env:PYTHONPATH = "$PWD"
@@ -189,6 +190,7 @@ uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --reload
 
 Mac/Linux:
 ```bash
+source .venv-copilot-v2/bin/activate
 cd copilot-v2
 export COPILOT_ARTIFACTS_ROOT="$PWD/artifacts"
 export PYTHONPATH="$PWD"

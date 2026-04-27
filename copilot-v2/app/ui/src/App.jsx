@@ -76,11 +76,6 @@ function advCritTurns(adv, crit, round) {
 
 // ── Plan building ─────────────────────────────────────────────────────────────
 
-const mockPlans = [
-  { id: "plan-a", title: "Margin-First Bundle Expansion", actions: ["Launch 3 category-specific bundles.", "Increase top ROAS campaigns by 15%.", "Weekly inventory checks before promo pushes."], impactScore: 88, riskLevel: "Medium", confidence: 82 },
-  { id: "plan-b", title: "Inventory-Protected Growth", actions: ["Gate promotions by 21-day stock coverage.", "Prioritize substitutes for low-coverage SKUs.", "Reduce discount depth for volatile categories."], impactScore: 79, riskLevel: "Low", confidence: 76 },
-  { id: "plan-c", title: "Aggressive Revenue Sprint", actions: ["Double ad spend in best channels for 2 weeks.", "Flash discount windows at peak traffic.", "Backfill risky SKUs via expedited suppliers."], impactScore: 91, riskLevel: "High", confidence: 67 },
-];
 
 function buildPlansFromRanked(ranked) {
   if (!ranked || !ranked.length) return [];
@@ -115,7 +110,6 @@ function buildPlansFromRanked(ranked) {
         ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
         ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
       ].slice(0, 8),
-      impactScore: Math.max(50, Math.min(99, Math.round(Math.max(55, Math.min(95, retrievalSimilarity)) * 0.92))),
       riskLevel,
       confidence: retrievalSimilarity,
     };

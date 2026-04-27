@@ -120,9 +120,6 @@ export default function ResultsView({
 
             <div className="mt-4 space-y-1 text-sm">
               <p className="text-slate-300">
-                Impact Score: <span className="font-semibold text-cyan-300">{plan.impactScore}</span>
-              </p>
-              <p className="text-slate-300">
                 Risk Level: <span className={`font-semibold ${riskStyles[plan.riskLevel]}`}>{plan.riskLevel}</span>
               </p>
               <p className="text-slate-300">
