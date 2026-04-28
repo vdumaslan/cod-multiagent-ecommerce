@@ -153,7 +153,48 @@ def continue_acj(
         crit_filename="5_debate_critic.json",
     )
 
-    return adv_result, crit_result, {**adv_raw, **crit_raw}
+    def _norm_actions(adv: dict[str, Any]) -> list[tuple[str, str, float]]:
+        out: list[tuple[str, str, float]] = []
+        for a in (adv or {}).get("proposed_actions") or []:
+            pid = str((a or {}).get("product_id") or "").strip()
+            if not pid:
+                continue
+            act = str((a or {}).get("action_type") or "reprice").strip().lower()
+            try:
+                pct = float((a or {}).get("recommended_price_change_pct") or 0.0)
+            except Exception:
+                pct = 0.0
+            out.append((pid, act, round(pct, 4)))
+        return sorted(out)
+
+    # Enforce adversarial linkage: if Advocate revision is identical to round1, rerun with a stronger directive.
+    # This avoids "three independent LLM calls" behavior.
+    unchanged = _norm_actions(adv_result) == _norm_actions(prev_advocate)
+    reran = False
+    if unchanged:
+        reran = True
+        extra = (
+            "Your revision was identical to round1_advocate. You MUST revise the plan.\n"
+            "Pick at least one product_id and change action_type or recommended_price_change_pct.\n"
+            "Explicitly address at least two Critic disagreements with concrete changes.\n"
+            "Stay grounded: keep changes consistent with candidate signals and constraints (do not invent unsupported deltas).\n"
+        )
+        payload2 = {**payload, "human_feedback": (extra + ("\n" + human_feedback if human_feedback else ""))}
+        adv_result, crit_result, adv_raw2, crit_raw2 = _run_round(
+            ollama,
+            cfg=cfg,
+            base_payload=payload2,
+            seed_offset=130,
+            is_revision=True,
+            run_dir=run_dir,
+            adv_filename="4_debate_advocate_retry.json",
+            crit_filename="5_debate_critic_retry.json",
+        )
+        adv_raw = {**adv_raw, **{"advocate_retry_enforced": adv_raw2.get("advocate", {})}}
+        crit_raw = {**crit_raw, **{"critic_retry_enforced": crit_raw2.get("critic", {})}}
+
+    raw = {**adv_raw, **crit_raw, "enforced_revision": {"unchanged": bool(unchanged), "reran": bool(reran)}}
+    return adv_result, crit_result, raw
 
 
 def run_judge_only(

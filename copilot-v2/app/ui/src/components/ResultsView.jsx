@@ -112,6 +112,17 @@ export default function ResultsView({
               </div>
             )}
 
+            {!!(plan.topDrivers || []).length && (
+              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Top drivers (deterministic)</p>
+                <ul className="mt-1 space-y-1 text-slate-300">
+                  {(plan.topDrivers || []).map((d) => (
+                    <li key={d}>- {d}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <ul className="mt-3 space-y-2 text-sm text-slate-300">
               {plan.actions.map((action) => (
                 <li key={action}>- {action}</li>

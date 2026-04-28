@@ -43,6 +43,13 @@ def build_messages(
             {
                 "product_id": c.get("product_id"),
                 "suggested_action": c.get("suggested_action"),
+                "pricing_source": c.get("pricing", {}).get("source"),
+                "pricing_flags": {
+                    "large_delta": (c.get("pricing", {}) or {}).get("large_delta", False),
+                    "near_bound": (c.get("pricing", {}) or {}).get("near_bound", False),
+                    "shrink_applied": (c.get("pricing", {}) or {}).get("shrink_applied", False),
+                    "shrink_factor": (c.get("pricing", {}) or {}).get("shrink_factor", 1.0),
+                },
                 "recommended_price_change_pct": c.get("recommended_price_change_pct"),
                 "inventory_status": c.get("inventory", {}).get("stock_status"),
                 "risk_flag": c.get("inventory", {}).get("risk_flag"),
@@ -62,6 +69,11 @@ def build_messages(
                 "Return STRICT JSON only. No markdown, no extra text.\n"
                 "Keys: agreements (<=6 strings), disagreements (<=6 strings), suggested_changes (<=6 strings).\n"
                 "Focus on risks, constraint violations, and conflicts between signals.\n"
+                "Adversarial requirements:\n"
+                "- Each disagreement MUST reference a specific product_id and a concrete signal/constraint (e.g., pricing_source=fallback, p_neg, total_returns, inventory_status, max_abs_price_change_pct).\n"
+                "- At least 2 disagreements should propose an alternative with a concrete change (action_type or price_change) for that product.\n"
+                "- For pricing_source=fallback, strongly prefer suggesting action_type='investigate' with 0.0% instead of repricing.\n"
+                "- If Advocate matches the candidate recommended_price_change_pct, say so (agreement) unless a risk/constraint argues otherwise.\n"
                 + cot
                 + few_shot
                 + f"INPUT_JSON:\n{json.dumps(slim_payload)}"

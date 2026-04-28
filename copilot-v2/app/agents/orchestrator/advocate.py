@@ -15,7 +15,10 @@ _SYSTEM = (
 _SYSTEM_REVISION = (
     "You are the Advocate. You are revising your previous proposal based on Critic feedback "
     "and optional human input. Refine your plan — do not simply repeat the original. "
-    "Output STRICT JSON only."
+    "Output STRICT JSON only. "
+    "Adversarial requirement: you MUST change at least one proposed action (action_type or recommended_price_change_pct) "
+    "relative to round1_advocate unless the Critic had zero meaningful disagreements; if you keep an action unchanged, "
+    "explicitly justify it in key_claims by citing a provided signal/constraint."
 )
 
 _FEW_SHOT = (
@@ -67,6 +70,12 @@ def build_messages(
             "product_id": c.get("product_id"),
             "suggested_action": c.get("suggested_action"),
             "pricing_source": c.get("pricing", {}).get("source"),
+            "pricing_flags": {
+                "large_delta": (c.get("pricing", {}) or {}).get("large_delta", False),
+                "near_bound": (c.get("pricing", {}) or {}).get("near_bound", False),
+                "shrink_applied": (c.get("pricing", {}) or {}).get("shrink_applied", False),
+                "shrink_factor": (c.get("pricing", {}) or {}).get("shrink_factor", 1.0),
+            },
             "recommended_price_change_pct": c.get("recommended_price_change_pct", 0.0),
             "sentiment": {k: c.get("sentiment", {}).get(k) for k in ("p_pos", "p_neu", "p_neg", "n_reviews")},
             "inventory_status": c.get("inventory", {}).get("stock_status"),
@@ -109,6 +118,11 @@ def build_messages(
                 f"Keys: proposed_actions (top {top_k}), key_claims (<=5 strings), concerns (<=5 strings).\n"
                 "Each proposed_action must have: product_id (string), action_type (string), recommended_price_change_pct (number).\n"
                 "Allowed action_type values: reprice, hold, promote, investigate, restock.\n"
+                "Grounding rules:\n"
+                "- Use the candidate's recommended_price_change_pct as your starting point for any reprice action.\n"
+                "- If pricing_source is 'fallback', prefer action_type='investigate' and set recommended_price_change_pct=0.0.\n"
+                "- Do not flip the sign of the candidate recommended_price_change_pct unless you cite a specific risk/constraint signal.\n"
+                "- For non-reprice actions, set recommended_price_change_pct=0.0.\n"
                 "Use only product_ids from candidates below.\n"
                 f"INPUT_JSON:\n{json.dumps(slim_payload)}"
             ),

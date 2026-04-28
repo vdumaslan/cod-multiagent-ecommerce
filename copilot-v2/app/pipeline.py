@@ -1,6 +1,7 @@
 """Main entry point: wire retrieval → specialist enrichment → optional ACJ debate."""
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -197,10 +198,61 @@ class Pipeline:
         - Output is persisted to runs as `0_query_rewrite.json` for debugging.
         """
         goal = str(goal or "").strip()
+        original_goal = goal
         enabled = os.environ.get("COPILOT_ENABLE_QUERY_REWRITE", "1").strip().lower() not in {"0", "false", "no"}
         model = os.environ.get("COPILOT_QUERY_REWRITE_MODEL", "qwen2.5:7b-instruct").strip() or "qwen2.5:7b-instruct"
         if not enabled or not goal:
             return {"ok": True, "used": False, "original_goal": goal, "retrieval_query": goal}
+
+        # Lightweight typo correction for common intent verbs (esp. first token), so broad-goal detection
+        # and rewrites don't silently fail on obvious misspellings like "Incxrease ...".
+        def _fix_common_intent_typos(s: str) -> tuple[str, list[dict[str, str]]]:
+            vocab = [
+                "increase", "decrease", "reduce", "avoid", "prevent", "clear", "grow", "boost", "improve",
+                "revenue", "profit", "sales", "returns", "stockouts", "conversion", "margin",
+                "inventory", "performance",
+            ]
+            words = re.findall(r"[A-Za-z]{4,}", s)
+            if not words:
+                return s, []
+            fixes: list[dict[str, str]] = []
+            fixed = s
+
+            def _adjacent_transposition_match(w: str) -> str | None:
+                wl = w.lower()
+                for v in vocab:
+                    if len(v) != len(wl):
+                        continue
+                    # Detect a single adjacent swap (Damerau-like) e.g. gorw -> grow, grwo -> grow.
+                    mism = [i for i, (a, b) in enumerate(zip(wl, v)) if a != b]
+                    if len(mism) != 2:
+                        continue
+                    i, j = mism
+                    if j == i + 1 and wl[i] == v[j] and wl[j] == v[i] and wl[:i] == v[:i] and wl[j + 1 :] == v[j + 1 :]:
+                        return v
+                return None
+
+            # Only auto-correct the first two words (highest leverage, low risk of mangling product names).
+            # This catches cases like "Boost saels ..." and "Clear invetory ...".
+            for i in range(min(2, len(words))):
+                w = words[i]
+                cand = difflib.get_close_matches(w.lower(), vocab, n=1, cutoff=0.80)
+                if not cand or cand[0] == w.lower():
+                    trans = _adjacent_transposition_match(w)
+                    if not trans or trans == w.lower():
+                        continue
+                    corrected = trans
+                else:
+                    corrected = cand[0]
+                if w[:1].isupper():
+                    corrected = corrected[:1].upper() + corrected[1:]
+                fixed = re.sub(rf"\b{re.escape(w)}\b", corrected, fixed, count=1)
+                fixes.append({"from": w, "to": corrected})
+
+            return fixed, fixes
+
+        goal_fixed, typo_fixes = _fix_common_intent_typos(goal)
+        goal_for_logic = goal_fixed
 
         # Heuristic: only rewrite when the goal looks broad/strategy-level.
         broad_markers = [
@@ -208,18 +260,36 @@ class Pipeline:
             "improve business", "improve performance", "increase conversion", "increase margin",
             "reduce returns", "reduce churn", "reduce complaints",
         ]
-        goal_l = goal.lower()
+        goal_l = goal_for_logic.lower()
         # Treat goals like "grow revenue for Baking Cups ..." as already specific enough.
         has_specific_for_phrase = bool(
             re.search(r"\bfor\s+[a-z0-9][a-z0-9&'\\-]{3,}(?:\s+[a-z0-9][a-z0-9&'\\-]{2,}){0,4}\b", goal_l)
         )
         if has_specific_for_phrase:
             # Avoid rewriting if user already provided a concrete product/category after "for".
-            return {"ok": True, "used": False, "original_goal": goal, "retrieval_query": goal}
+            if typo_fixes and goal_fixed != original_goal:
+                note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
+                return {
+                    "ok": True,
+                    "used": True,
+                    "original_goal": original_goal,
+                    "retrieval_query": goal_fixed,
+                    "notes": f"Typo corrected: {note}",
+                }
+            return {"ok": True, "used": False, "original_goal": original_goal, "retrieval_query": original_goal}
 
-        is_broad = any(m in goal_l for m in broad_markers) and len(goal.split()) <= 12
+        is_broad = any(m in goal_l for m in broad_markers) and len(goal_for_logic.split()) <= 12
         if not is_broad:
-            return {"ok": True, "used": False, "original_goal": goal, "retrieval_query": goal}
+            if typo_fixes and goal_fixed != original_goal:
+                note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
+                return {
+                    "ok": True,
+                    "used": True,
+                    "original_goal": original_goal,
+                    "retrieval_query": goal_fixed,
+                    "notes": f"Typo corrected: {note}",
+                }
+            return {"ok": True, "used": False, "original_goal": original_goal, "retrieval_query": original_goal}
 
         messages = [
             {
@@ -241,7 +311,7 @@ class Pipeline:
                     "- Keep retrieval_query short (<= 12 words).\n"
                     "- Prefer concrete product/category terms; avoid business jargon.\n"
                     "- If goal is too vague, set retrieval_query to \"\" and provide a clarifying_question.\n"
-                    f"GOAL: {goal}"
+                    f"GOAL: {goal_fixed}"
                 ),
             },
         ]
@@ -255,10 +325,14 @@ class Pipeline:
             notes = str(obj.get("notes") or "").strip()
             if not rq and not cq:
                 cq = "What product category (or example SKU) are you trying to improve revenue for?"
+            if typo_fixes and goal_fixed != original_goal:
+                note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
+                prefix = f"Typo corrected: {note}."
+                notes = f"{prefix} {notes}".strip()
             return {
                 "ok": True,
                 "used": True,
-                "original_goal": goal,
+                "original_goal": original_goal,
                 "retrieval_query": rq,
                 "clarifying_question": cq,
                 "notes": notes,
@@ -269,8 +343,8 @@ class Pipeline:
             return {
                 "ok": False,
                 "used": False,
-                "original_goal": goal,
-                "retrieval_query": goal,
+                "original_goal": original_goal,
+                "retrieval_query": original_goal,
                 "error": str(e)[:200],
                 "raw": raw_text[:500],
                 "model": model,
@@ -279,21 +353,58 @@ class Pipeline:
     def _suggest_action(
         self,
         *,
+        objective: str,
         inventory_status: str,
         risk_flag: bool,
+        pricing_source: str,
+        predicted_price_change_pct: float,
+        n_reviews: float,
         p_neg: float,
         total_returns: float,
     ) -> str:
         """Lightweight action playbook derived from runtime signals."""
+        obj = (objective or "revenue").strip().lower()
         inv = (inventory_status or "unknown").lower()
-        if inv in {"low_stock", "stockout_risk"}:
+        src = (pricing_source or "fallback").strip().lower()
+        try:
+            n_rev = float(n_reviews or 0.0)
+        except Exception:
+            n_rev = 0.0
+        try:
+            pchg = float(predicted_price_change_pct or 0.0)
+        except Exception:
+            pchg = 0.0
+
+        # Inventory hard signals first
+        if inv == "stockout_risk":
+            return "restock"
+        if inv in {"low_stock"} or risk_flag:
             return "hold"
-        if inv == "overstocked" and (p_neg >= 0.4 or total_returns >= 5):
+
+        # Missing pricing coverage: don't pretend we can reprice intelligently.
+        if src == "fallback":
             return "investigate"
+
+        # Objective-specific nudges
+        if obj == "avoid_stockouts":
+            return "hold"
+        if obj == "reduce_returns" and (total_returns >= 2 or (n_rev >= 8 and p_neg >= 0.20)):
+            return "investigate"
+
+        # Moderate-quality issues should surface as investigate (not only extreme cases)
+        if total_returns >= 3:
+            return "investigate"
+        if n_rev >= 10 and p_neg >= 0.30:
+            return "investigate"
+
+        # Overstock: prefer promote unless quality signals suggest investigating first.
         if inv == "overstocked":
             return "promote"
-        if risk_flag and (p_neg >= 0.5 or total_returns >= 7):
-            return "investigate"
+
+        # For clear-inventory objective, promote/reprice down is often safer than raising price.
+        if obj == "clear_inventory" and pchg > 0.0:
+            return "promote"
+
         return "reprice"
 
     def _enrich(
@@ -306,6 +417,11 @@ class Pipeline:
         constraints: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         constraints = constraints or {}
+        try:
+            policy_bound = float(constraints.get("max_abs_price_change_pct", 10.0) or 10.0)
+        except Exception:
+            policy_bound = 10.0
+        policy_bound = max(0.01, float(policy_bound))
         exclude_low_stock = bool(constraints.get("exclude_low_stock", False))
         exclude_stockout_risk = bool(constraints.get("exclude_stockout_risk", False))
         do_not_raise_if_p_neg_above = constraints.get("do_not_raise_if_p_neg_above", None)
@@ -316,6 +432,8 @@ class Pipeline:
         except Exception:
             do_not_raise_if_p_neg_above_f = None
 
+        enable_shrink = os.environ.get("COPILOT_ENABLE_PRICING_SHRINKAGE", "0").strip().lower() in {"1", "true", "yes"}
+
         enriched = []
         for c in candidates:
             pid = str(c.get("product_id") or "")
@@ -324,13 +442,27 @@ class Pipeline:
 
             # Pricing
             pricing_result = self.pricing.lookup(pid) if enable_pricing else {"found": False}
-            price_change = (
+            price_change_raw = (
                 float(pricing_result.get("predicted_price_change_pct") or 0.0)
                 if pricing_result.get("found")
                 else 0.0
             )
-            pricing_info = {
-                "source": "cache" if pricing_result.get("found") else "fallback"
+            pricing_source = "cache" if pricing_result.get("found") else "fallback"
+            # Flags for peaky outputs / big deltas.
+            large_delta = bool(pricing_result.get("found")) and abs(price_change_raw) >= 0.7 * policy_bound
+            near_bound = bool(pricing_result.get("found")) and abs(price_change_raw) >= 0.9 * policy_bound
+            pricing_info: dict[str, Any] = {
+                "source": pricing_source,
+                # Proxy for price missing / pricing unavailable in this snapshot.
+                # (If pricing cache has no entry, we cannot ground price-based rationale.)
+                "price_missing": (pricing_source != "cache"),
+                "policy_bound": policy_bound,
+                "large_delta": large_delta,
+                "near_bound": near_bound,
+                "predicted_price_change_pct_raw": price_change_raw if pricing_result.get("found") else None,
+                "shrinkage_enabled": enable_shrink,
+                "shrink_factor": 1.0,
+                "shrink_applied": False,
             }
 
             # Sentiment
@@ -387,9 +519,51 @@ class Pipeline:
                 "safety_stock_units": safety,
             }
 
+            # Optional shrinkage for large deltas (post soft-cap). Keep behind a flag for A/B.
+            price_change = float(price_change_raw or 0.0)
+            if enable_shrink and pricing_source == "cache" and large_delta:
+                # Shrink when evidence is weak.
+                # Defaults are intentionally mild; tune via env vars without code changes.
+                # retrieval_score is cosine similarity (0..1). sentiment coverage is a proxy for confidence.
+                n_reviews = float(sentiment_info.get("n_reviews") or 0.0)
+                try:
+                    strong = float(os.environ.get("COPILOT_PRICING_SHRINK_FACTOR_STRONG", "0.90").strip() or 0.90)
+                except Exception:
+                    strong = 0.90
+                try:
+                    weak = float(os.environ.get("COPILOT_PRICING_SHRINK_FACTOR_WEAK", "0.80").strip() or 0.80)
+                except Exception:
+                    weak = 0.80
+                try:
+                    no_reviews_mult = float(os.environ.get("COPILOT_PRICING_SHRINK_NO_REVIEWS_MULT", "0.95").strip() or 0.95)
+                except Exception:
+                    no_reviews_mult = 0.95
+
+                # Clamp to a safe range to avoid accidental over-shrink.
+                strong = max(0.70, min(1.0, strong))
+                weak = max(0.60, min(1.0, weak))
+                no_reviews_mult = max(0.80, min(1.0, no_reviews_mult))
+
+                factor = strong if retrieval_score >= 0.88 else weak
+                if n_reviews <= 0:
+                    factor *= no_reviews_mult
+                # Reduce-only for clear-inventory objective (avoid shrinking discounts too much).
+                obj = str((constraints or {}).get("objective") or "revenue").strip().lower()
+                if obj == "clear_inventory" and price_change < 0:
+                    factor = min(1.0, factor + 0.10)
+                price_change = float(price_change) * float(factor)
+                # Clamp to policy bound.
+                price_change = max(-policy_bound, min(policy_bound, price_change))
+                pricing_info["shrink_factor"] = float(factor)
+                pricing_info["shrink_applied"] = True
+
             suggested_action = self._suggest_action(
+                objective=str((constraints or {}).get("objective") or "revenue"),
                 inventory_status=str(inventory_info.get("stock_status") or "unknown"),
                 risk_flag=bool(inventory_info.get("risk_flag", False)),
+                pricing_source=str(pricing_info.get("source") or "fallback"),
+                predicted_price_change_pct=price_change,
+                n_reviews=float(sentiment_info.get("n_reviews") or 0.0),
                 p_neg=p_neg,
                 total_returns=returns,
             )
@@ -437,10 +611,76 @@ class Pipeline:
         enriched_by_pid: dict[str, dict[str, Any]],
         horizon_days: int,
     ) -> list[dict[str, Any]]:
+        def _deterministic_rationale(base: dict[str, Any]) -> list[str]:
+            pr = base.get("pricing") or {}
+            sent = base.get("sentiment") or {}
+            inv = base.get("inventory") or {}
+            sig = base.get("signals") or {}
+            ev = base.get("evidence") or {}
+
+            out: list[str] = []
+            src = str(pr.get("source") or "unknown")
+            if pr.get("price_missing") or src == "fallback":
+                out.append("Pricing unavailable for this SKU (price missing/unknown in cache).")
+            else:
+                pct = float(base.get("recommended_price_change_pct") or 0.0)
+                if pr.get("near_bound"):
+                    out.append(f"Pricing delta is near policy bound (delta={pct:.2f}%). Treat as lower-trust.")
+                elif pr.get("large_delta"):
+                    out.append(f"Pricing delta is large vs policy bound (delta={pct:.2f}%). Treat as lower-trust.")
+                elif abs(pct) >= 1e-6:
+                    out.append(f"Pricing signal suggests delta={pct:.2f}%.")
+
+            stock = str(inv.get("stock_status") or "unknown")
+            risk = bool(inv.get("risk_flag", False))
+            if stock not in {"unknown", "healthy"}:
+                out.append(f"Inventory status={stock}{' (risk_flag=true)' if risk else ''}.")
+            elif risk:
+                out.append("Inventory risk_flag=true.")
+
+            n_reviews = float(sent.get("n_reviews") or 0.0)
+            p_neg = float(sent.get("p_neg") or 0.0)
+            if n_reviews > 0:
+                out.append(f"Sentiment p_neg={p_neg:.2f} (n_reviews={int(n_reviews)}).")
+            returns = float(sig.get("total_returns") or 0.0)
+            if returns > 0:
+                out.append(f"Returns total_returns={int(returns)}.")
+
+            r = float(ev.get("retrieval_score") or 0.0)
+            out.append(f"Retrieval similarity={round(r*100):d}%.")
+
+            # De-dup and cap.
+            dedup = []
+            seen = set()
+            for b in out:
+                if b not in seen:
+                    seen.add(b)
+                    dedup.append(b)
+            return dedup[:4]
+
+        def _looks_generic(bullets: list[str]) -> bool:
+            if not bullets:
+                return True
+            joined = " ".join([str(b or "") for b in bullets]).lower()
+            generic_markers = [
+                "competitive pricing", "steady demand", "market conditions", "room for minor",
+                "features are well-received", "boost demand", "price reduction might",
+            ]
+            has_marker = any(m in joined for m in generic_markers)
+            has_numbers = any(ch.isdigit() for ch in joined)
+            # If it's full of generic markers and lacks any numeric grounding, treat as generic.
+            return bool(has_marker and not has_numbers)
+
         out = []
         for i, ja in enumerate(judge_actions):
             pid = str(ja.get("product_id") or "")
             base = enriched_by_pid.get(pid, {})
+            llm_rationale = list(ja.get("rationale_bullets") or [])
+            llm_risk = list(ja.get("risk_bullets") or [])
+            det = _deterministic_rationale(base)
+            # If LLM rationale is missing or looks generic, replace with deterministic bullets.
+            if _looks_generic(llm_rationale):
+                llm_rationale = det
             out.append({
                 **base,
                 "product_id": pid,
@@ -448,8 +688,8 @@ class Pipeline:
                 "recommended_price_change_pct": float(ja.get("recommended_price_change_pct") or 0.0),
                 "horizon_days": horizon_days,
                 "rank": i + 1,
-                "llm_rationale_bullets": list(ja.get("rationale_bullets") or []),
-                "llm_risk_bullets": list(ja.get("risk_bullets") or []),
+                "llm_rationale_bullets": llm_rationale,
+                "llm_risk_bullets": llm_risk,
             })
         return out
 

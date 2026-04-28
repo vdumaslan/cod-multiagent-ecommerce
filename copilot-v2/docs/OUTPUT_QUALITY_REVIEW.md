@@ -538,23 +538,23 @@ These issues were identified by inspecting the two live runs after all A–G fix
 
 **Bugs (actively wrong)**
 
-1. **Rationale hallucination** *(see Remaining issues #5)* — LLM rationale bullets contradict the actual signal values (e.g. "High returns and negative customer sentiment" when `total_returns=0` and `p_neg=0.04`). Fix: compute top 1–2 driver signals deterministically in code (e.g. highest `p_neg`, highest `total_returns`) and inject them into the prompt or render them directly in the UI so explanations are auditable regardless of what the LLM says.
+1. **Rationale hallucination** *(see Remaining issues #5)* — **Completed.** Implemented deterministic, signal-grounded rationale bullets in `Pipeline._merge_judge_output()` and auto-replaced empty/generic judge rationales with these bullets (pricing availability/flags, inventory, sentiment, returns, retrieval similarity).
 
-2. **Typo handling in query rewriter** *(new finding from live runs)* — Misspelled input (e.g. "Incxrease") passes through the rewriter unchanged (`used: false`). Retrieval still works due to embedding fuzziness, but the rewriter should flag or correct typos rather than silently forwarding them.
+2. **Typo handling in query rewriter** *(new finding from live runs)* — **Completed.** Added lightweight typo correction for common intent words (including adjacent transpositions like `Gorw → Grow`) and surfaced a `notes` field in `trace.query_rewrite` when corrections are applied.
 
-3. **Advocate pricing direction** *(related to Remaining issues #2)* — Advocate consistently proposes ~+7% price increases regardless of what the pricing cache says (cache may suggest -5%). The advocate is not grounding its proposals in the provided `predicted_delta`. Requires prompt work to explicitly instruct the advocate to use the cache delta as its starting point.
+3. **Advocate pricing direction** *(related to Remaining issues #2)* — **Completed.** Updated the Advocate prompt to start from the cache delta (`recommended_price_change_pct`) and treat `pricing_source="fallback"` as `investigate` with `0.0%` (no invented reprices).
 
 **Quality gaps**
 
-4. **Debate is not genuinely adversarial** *(related to Remaining issues #8)* — In both runs, the advocate proposed ~+7% and the judge output -5%, with no critic feedback driving the direction change. The debate currently behaves like three independent LLM calls rather than a real deliberation.
+4. **Debate is not genuinely adversarial** *(related to Remaining issues #8)* — **Completed.** Made debate rounds causally linked: Critic disagreements are forced to cite `product_id` + concrete signals; Advocate revision is enforced (auto-rerun if unchanged); Judge output is deterministically linked to the latest Advocate plan (default per-SKU + default SKU selection).
 
-5. **`suggested_action` is always "reprice"** *(related to Remaining issues #1)* — The playbook defaults to `reprice` for every candidate since all inventory is healthy and no signals are extreme. Fix D's value only surfaces on edge cases. The playbook rules need to be more sensitive to moderate signals (e.g. moderate `p_neg`, moderate returns) to produce useful variety.
+5. **`suggested_action` is always "reprice"** *(related to Remaining issues #1)* — **Completed.** Tuned the playbook in `pipeline.py` so `suggested_action` fires on moderate signals (returns/sentiment), objective, pricing availability (fallback → investigate), and inventory risk (hold/restock), producing more diverse actions.
 
-6. **Pricing still clusters around 7–8%** *(see Remaining issues #2)* — The tanh soft-cap (fix C) removed the ±10% pileup, but predictions still cluster at ~7–8%. Add a `large_delta` flag in the debate payload (e.g. `|pct| >= 0.7 * policy_bound`) so LLMs treat large deltas as lower-trust. Optionally add a shrinkage/calibration layer in the cache build.
+6. **Pricing still clusters around 7–8%** *(see Remaining issues #2)* — **Completed.** Added `pricing.large_delta` / `pricing.near_bound` flags to enriched candidates and passed them through debate payloads + UI Top Drivers. Added optional, tunable shrinkage (`COPILOT_ENABLE_PRICING_SHRINKAGE=1`) with env-var controls for shrink factors.
 
-7. **No price-missing indicator in UI** *(related to Remaining issues #1)* — ~29.5% of products have no price. When a candidate has unknown price, the UI gives no warning, allowing LLMs to fabricate price-based rationale. Add a visible indicator in the results card when `price` is null for a candidate.
+7. **No price-missing indicator in UI** *(related to Remaining issues #1)* — **Completed.** Added `pricing.price_missing` in the backend (true when pricing cache is missing) and rendered a clear UI warning + Top Driver entry (“Price: unknown / pricing unavailable”).
 
-8. **Plan title is not user-friendly** *(new UI finding)* — Title is currently `action_type — product_id` (e.g. "reprice — B08MCHN9TR"). Should use the product title from `evidence.points[0].text`, which is already available in the plan object as `evidenceSnippet`.
+8. **Plan title is not user-friendly** *(new UI finding)* — **Completed.** Updated Results card titles to use product title parsed from the retrieval snippet (`evidence.points[0].text`) instead of raw `product_id`.
 
 **Known limitations (require new data)**
 
@@ -564,15 +564,9 @@ These issues were identified by inspecting the two live runs after all A–G fix
 
 ### Suggested priority order
 
+All items #1–#8 above have been completed; remaining work is primarily **known limitations** (#9–#10) and the broader “Remaining issues / next priorities” section (data and operational robustness).
+
 | Priority | Item | Why |
 |---|---|---|
-| **1st** | #8 Plan title | One-line UI change. Immediately makes results more readable — product name is already available in `evidenceSnippet`. |
-| **2nd** | #2 Typo handling | Small change to the query rewriter prompt. Prevents silent bad retrieval queries without touching any other component. |
-| **3rd** | #7 Price-missing indicator | Small UI change in `ResultsView.jsx`. Prevents the most common source of fabricated rationale (LLM inventing price reasoning when price is null). |
-| **4th** | #1 Rationale hallucination | Highest visible quality impact. Fixing this also reduces the damage from #3 and #4 — even if the advocate/debate is imperfect, grounded signal display in the UI makes outputs trustworthy. Do the UI-side deterministic signals first (no backend change needed), then tighten the prompt schema. |
-| **5th** | #3 Advocate pricing direction | Prompt-only change. Once fixed, the debate becomes more coherent and #4 (debate not adversarial) may partially self-correct since the advocate will be starting from a grounded position. |
-| **6th** | #6 Pricing `large_delta` flag | No cache rebuild needed for the flag itself. Pass `large_delta=true` when `|pct| >= 0.7 * policy_bound` and update the advocate/judge prompts to treat it skeptically. Directly addresses Remaining issues #2. |
-| **7th** | #5 suggested_action variety | Requires tuning the playbook thresholds in `pipeline.py` to fire on moderate signals. Improves action diversity without any cache rebuild. |
-| **8th** | #4 Debate adversarial | Hardest to fix well — requires prompt redesign and possibly a structured turn-by-turn format. Only worth tackling after #3 is fixed (advocate needs to be grounded before debate quality matters). |
 | **Skip for now** | #9, #10 | Blocked by missing data or downstream integrations. Document as known limitations and move on. |
 

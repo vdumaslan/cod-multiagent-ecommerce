@@ -77,6 +77,57 @@ function advCritTurns(adv, crit, round) {
 // ── Plan building ─────────────────────────────────────────────────────────────
 
 
+function extractTitleFromEvidenceSnippet(snippet) {
+  const s = String(snippet || "");
+  if (!s) return "";
+  const m = s.match(/(?:^|\n)title:\s*([^\n]+?)(?:\s+brand:|\n|$)/i);
+  return (m?.[1] || "").trim();
+}
+
+function buildTopDrivers(a) {
+  const drivers = [];
+  const sent = a.sentiment || {};
+  const inv = a.inventory || {};
+  const sig = a.signals || {};
+
+  const stock = String(inv.stock_status || "unknown");
+  const risk = !!inv.risk_flag;
+  const returns = Number(sig.total_returns || 0);
+  const nReviews = Number(sent.n_reviews || 0);
+  const pNeg = Number(sent.p_neg || 0);
+  const pricingSource = String(a?.pricing?.source || "unknown");
+  const pct = Number(a.recommended_price_change_pct || 0);
+  const priceMissing = !!a?.pricing?.price_missing;
+
+  if (stock && stock !== "healthy" && stock !== "unknown") {
+    drivers.push(`Inventory: ${stock}${risk ? " (risk)" : ""}`);
+  } else if (risk) {
+    drivers.push("Inventory: risk_flag=true");
+  }
+
+  if (nReviews > 0 && pNeg >= 0.25) {
+    drivers.push(`Sentiment: p_neg=${pNeg.toFixed(2)} (n=${nReviews})`);
+  }
+  if (returns >= 3) {
+    drivers.push(`Returns: total_returns=${returns}`);
+  }
+
+  if (priceMissing || pricingSource === "fallback") {
+    drivers.push("Price: unknown / pricing unavailable");
+  } else if (a?.pricing?.near_bound) {
+    drivers.push("Pricing: near bound (treat delta skeptically)");
+  } else if (a?.pricing?.large_delta) {
+    drivers.push("Pricing: large delta (treat delta skeptically)");
+  } else if (Math.abs(pct) >= 5) {
+    drivers.push(`Pricing delta: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`);
+  }
+
+  const retrieval = Number(a.evidence?.retrieval_score ?? 0);
+  drivers.push(`Retrieval similarity: ${Math.round(retrieval * 100)}%`);
+
+  return Array.from(new Set(drivers)).slice(0, 3);
+}
+
 function buildPlansFromRanked(ranked) {
   if (!ranked || !ranked.length) return [];
   return ranked.map((a) => {
@@ -93,23 +144,28 @@ function buildPlansFromRanked(ranked) {
     const retrieval = Number(a.evidence?.retrieval_score ?? 0);
     const retrievalSimilarity = Math.max(0, Math.min(100, Math.round(retrieval * 100)));
     const evidenceSnippet = a.evidence?.points?.[0]?.text || "";
+    const productTitle = extractTitleFromEvidenceSnippet(evidenceSnippet);
     const suggestedAction = String(a.suggested_action || a.signals?.suggested_action || "").trim();
     const finalActionType = String(a.action_type || "reprice").trim();
+    const topDrivers = buildTopDrivers(a);
     return {
       id: String(a.product_id),
-      title: `${finalActionType} — ${a.product_id}`,
+      title: `${finalActionType} — ${productTitle || a.product_id}`,
       finalActionType,
       suggestedAction,
       retrievalSimilarity,
       retrievalScore: retrieval,
       evidenceSnippet: evidenceSnippet ? String(evidenceSnippet).slice(0, 240) : "",
+      topDrivers,
       actions: [
+        `SKU: ${a.product_id}`,
         `Pricing: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% (source=${a?.pricing?.source || "unknown"})`,
+        (a?.pricing?.price_missing || a?.pricing?.source === "fallback") ? "Price missing/unknown: treat pricing rationale as low-confidence" : null,
         sent.n_reviews ? `Sentiment (n=${sent.n_reviews}): +${Number(sent.p_pos || 0).toFixed(2)} ~${Number(sent.p_neu || 0).toFixed(2)} -${Number(sent.p_neg || 0).toFixed(2)}` : "Sentiment: (n/a)",
         `Inventory: ${inv.stock_status || "unknown"}`,
         ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
         ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
-      ].slice(0, 8),
+      ].filter(Boolean).slice(0, 8),
       riskLevel,
       confidence: retrievalSimilarity,
     };
