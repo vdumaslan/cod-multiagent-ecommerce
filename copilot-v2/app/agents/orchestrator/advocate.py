@@ -22,12 +22,21 @@ _SYSTEM_REVISION = (
 )
 
 _FEW_SHOT = (
-    "FORMAT-ONLY examples (do not use these product_ids):\n"
+    "FORMAT-ONLY example (do not use these product_ids — show grounded claims):\n"
     '{"proposed_actions":['
     '{"product_id":"EXAMPLE_1","action_type":"reprice","recommended_price_change_pct":2.5},'
     '{"product_id":"EXAMPLE_2","action_type":"hold","recommended_price_change_pct":0.0},'
-    '{"product_id":"EXAMPLE_3","action_type":"promote","recommended_price_change_pct":0.0}'
-    '],"key_claims":["..."],"concerns":["..."]}\n'
+    '{"product_id":"EXAMPLE_3","action_type":"investigate","recommended_price_change_pct":0.0}'
+    '],'
+    '"key_claims":['
+    '"EXAMPLE_1: recommended_price_change_pct=2.5% (cache, small delta); p_neg=0.04 (n_reviews=24) supports safe reprice.",'
+    '"EXAMPLE_2: stock_status=low_stock (risk_flag=true); holding price to avoid stockout.",'
+    '"EXAMPLE_3: price_missing=true (fallback source); cannot ground a reprice — investigate instead."'
+    '],'
+    '"concerns":['
+    '"EXAMPLE_1: large_delta=false but monitor if p_neg rises above 0.20.",'
+    '"EXAMPLE_3: total_returns=5 may indicate quality issue beyond pricing."'
+    ']}\n'
 )
 
 

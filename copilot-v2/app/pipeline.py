@@ -39,11 +39,10 @@ class Pipeline:
 
         self.retrieval = RetrievalAgent(snapshot_id=snapshot_id, artifacts_root=root)
         min_score_env = os.environ.get("COPILOT_RETRIEVAL_MIN_SCORE", "").strip()
-        if min_score_env:
-            try:
-                self.retrieval.config.min_score = float(min_score_env)
-            except Exception:
-                pass
+        try:
+            self.retrieval.config.min_score = float(min_score_env) if min_score_env else 0.80
+        except Exception:
+            self.retrieval.config.min_score = 0.80
         self.retrieval.load_index()
 
         self.pricing = PricingAgent(snapshot_id=snapshot_id, artifacts_root=root)
@@ -323,6 +322,9 @@ class Pipeline:
             rq = str(obj.get("retrieval_query") or "").strip()
             cq = str(obj.get("clarifying_question") or "").strip()
             notes = str(obj.get("notes") or "").strip()
+            # If rewriter returned both, treat as clarification — do not proceed with retrieval.
+            if rq and cq:
+                rq = ""
             if not rq and not cq:
                 cq = "What product category (or example SKU) are you trying to improve revenue for?"
             if typo_fixes and goal_fixed != original_goal:
@@ -678,9 +680,11 @@ class Pipeline:
             llm_rationale = list(ja.get("rationale_bullets") or [])
             llm_risk = list(ja.get("risk_bullets") or [])
             det = _deterministic_rationale(base)
-            # If LLM rationale is missing or looks generic, replace with deterministic bullets.
-            if _looks_generic(llm_rationale):
-                llm_rationale = det
+            # Always use deterministic bullets to guarantee factual accuracy.
+            # The LLM's action_type and reasoning are preserved; only the cited field values
+            # are grounded from actual input data (same principle as RAG — ground citations,
+            # not reasoning). The LLM rationale is kept as a fallback label in the trace only.
+            llm_rationale = det
             out.append({
                 **base,
                 "product_id": pid,

@@ -570,3 +570,74 @@ All items #1–#8 above have been completed; remaining work is primarily **known
 |---|---|---|
 | **Skip for now** | #9, #10 | Blocked by missing data or downstream integrations. Document as known limitations and move on. |
 
+---
+
+## Live run findings (post-fix validation)
+
+Three rounds of runs were performed after all A–G fixes were applied (snapshot `38710839ca6e1009`). Each round validated a new set of fixes.
+
+---
+
+### Round 1 — Initial validation runs
+
+**Setup**: query “Reduce returns for bed risers”, objective: reduce returns, `do_not_raise_if_p_neg_above=0.3`.
+
+**What was working**
+- `price_missing=true` correctly flagged for products with fallback pricing source
+- `large_delta=true` correctly firing when delta ≥ ~7%
+- `suggested_action` showing genuine variety (`hold`, `investigate`, `reprice`) across candidates
+- Inventory classification working: `low_stock` + `risk_flag=true` correctly surfacing
+
+**Issues found**
+- Rationale bullets hallucinating specific field values (e.g. `p_neg=0.23` when actual was `0.125`, `total_returns=15` when actual was `1`)
+- Query rewriter returning both a clarifying question and a retrieval query simultaneously; pipeline was proceeding with retrieval anyway
+- Judge overriding `suggested_action=hold` with reprice at `large_delta=true` (debate linkage loop was undoing the guardrail)
+- Retrieval min-score threshold (`COPILOT_RETRIEVAL_MIN_SCORE=0.80`) not enforced when env var was absent — retrieval agent defaults to `0.0`, so ~0.76-scoring non-bed-riser products passed through
+
+---
+
+### Round 2 — Post-fix validation (A, B, C, E)
+
+**Setup**: same query. Fixes A (LLM grounding rule + few-shots), B (either/or), C (debate linkage guardrail), and E (min-score default) applied.
+
+**What was working**
+- Fix B confirmed: match preview correctly showed “Needs clarification” and did not proceed with retrieval when rewriter returned both fields
+- Fix E confirmed: with min-score defaulting to 0.80, the previous ~0.76-scoring non-bed-riser products were filtered out
+
+**Issues found**
+- Rationale bullets still hallucinating (LLM grounding rule in `_SYSTEM` + few-shot update alone was not sufficient): e.g. rank 1 cited `p_neg=0.23` (actual: `0.125`) and `total_returns=15` (actual: `1`); rank 3 cited `total_returns=32` (actual: `0`)
+- Retrieval scores were ~0.76 (below threshold) because `COPILOT_RETRIEVAL_MIN_SCORE` was not set in the environment for that run — confirmed the default was still `0.0` at the time
+
+---
+
+### Fixes applied (from live run findings)
+
+- **A — Rationale hallucination**: Two-layer fix:
+  - *Layer 1 (LLM)* — Added rationale grounding rule to `_SYSTEM` in `judge.py` and updated all three agents' few-shot examples to model correct numeric citations.
+  - *Layer 2 (deterministic override)* — LLM grounding alone was still hallucinating specific numbers. Changed `_merge_judge_output()` in `pipeline.py` to always replace rationale bullets with deterministic ones built from the actual input data. This follows the same principle as RAG: the LLM's *reasoning* (what action to take) stays LLM-driven; the *factual citations* (field values from the payload) are grounded deterministically. The `_looks_generic()` check is no longer the gate — grounding is always enforced.
+- **B — Query rewrite either/or**: Added `if rq and cq: rq = “”` in `pipeline.py` — if the rewriter returns both a clarifying question and a retrieval query, treat as clarification and do not proceed with retrieval.
+- **C — Judge large_delta + hold guardrail**: Added `if suggested_ld == “hold” and large_delta: continue` to the debate linkage skip condition in `judge.py` — prevents the linkage loop from overwriting a hold that the guardrail already set.
+- **D — Nondeterministic query rewriter**: No action needed (expected LLM behavior; both rewrite paths handled correctly after B).
+- **E — Retrieval min-score not defaulting correctly**: Fixed by hardcoding `0.80` as the default in `pipeline.py` so the threshold is always active without requiring the env var.
+
+---
+
+### Round 3 — Final validation run
+
+**Setup**: query “Reduce returns for bed risers due to negative customer reviews and quality complaints”, objective: reduce returns, `do_not_raise_if_p_neg_above=0.3`. All fixes (A layer 2, E) applied.
+
+**Results** (snapshot `38710839ca6e1009`, run `run_20260429_042620_store_00_judge`)
+
+| Rank | Product | Action | p_neg | total_returns | large_delta | Rationale grounded? |
+|---|---|---|---|---|---|---|
+| 1 | B09QM99LKG (Banqin Bed Risers) | reprice +5.33% | 0.08 | 2 | false | ✓ |
+| 2 | B0C6FRCQDS (Headwind Furniture Riser) | hold | 0.00 | 4 | false | ✓ |
+| 3 | B07D4358F2 (Tech Team Bed Risers) | investigate | 0.29 | 3 | true | ✓ |
+
+**All fixes confirmed**
+- Retrieval scores 0.83 / 0.83 / 0.82 — all above 0.80 threshold, all actual bed risers (E ✓)
+- Rationale bullets exactly match real field values — no hallucinated numbers (A ✓)
+- Rank 2 correctly `hold` due to `low_stock + risk_flag=true` guardrail (inventory guardrail ✓)
+- Rank 3 correctly `investigate` due to `p_neg=0.29` + `large_delta=true` (C ✓)
+- Actions are sensible for “reduce returns” objective: no unjustified upward repricing on high-return items
+

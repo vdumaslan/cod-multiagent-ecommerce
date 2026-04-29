@@ -13,8 +13,16 @@ _SYSTEM = (
 )
 
 _FEW_SHOT = (
-    "FORMAT-ONLY example:\n"
-    '{"agreements":["..."],"disagreements":["..."],"suggested_changes":["..."]}\n'
+    "FORMAT-ONLY example (do not use these product_ids — show grounded disagreements):\n"
+    '{"agreements":['
+    '"EXAMPLE_1: reprice at recommended_price_change_pct=2.5% is consistent with cache signal and p_neg=0.04."'
+    '],"disagreements":['
+    '"EXAMPLE_2 (product_id=EXAMPLE_2): Advocate proposed reprice=+7.6% but large_delta=true and total_returns=6 — high delta on a high-return SKU increases risk; suggest hold or investigate instead.",'
+    '"EXAMPLE_3 (product_id=EXAMPLE_3): price_missing=true (fallback source); repricing without a cache signal is ungrounded."'
+    '],"suggested_changes":['
+    '"EXAMPLE_2: change action_type to investigate; set recommended_price_change_pct=0.0 until return cause is identified.",'
+    '"EXAMPLE_3: change action_type to investigate; do not reprice when price_missing=true."'
+    ']}\n'
 )
 
 

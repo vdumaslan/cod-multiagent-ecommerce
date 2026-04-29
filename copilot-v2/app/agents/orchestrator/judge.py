@@ -21,8 +21,13 @@ _SYSTEM = (
     "- If a candidate has inventory.stock_status in {low_stock, stockout_risk} OR risk_flag=true, default to action_type='hold' (or 'restock' if stockout_risk). "
     "Do NOT recommend raising price or running promotions for low-stock items.\n"
     "- Only override suggested_action if you can cite a specific provided signal in rationale_bullets.\n"
-    "- Use recommended_price_change_pct only for action_type='reprice'. For other action types set it to 0.0."
-    "\n"
+    "- Use recommended_price_change_pct only for action_type='reprice'. For other action types set it to 0.0.\n"
+    "Rationale grounding rule:\n"
+    "- Every rationale_bullet MUST cite at least one specific field value from the candidate data, "
+    "e.g. 'p_neg=0.17', 'total_returns=6', 'stock_status=low_stock', 'recommended_price_change_pct=7.60%', "
+    "'retrieval_score=0.86', 'large_delta=true', 'price_missing=true'. "
+    "Generic statements such as 'competitive pricing', 'steady demand', 'high returns', or 'low stock' "
+    "without citing the actual value from INPUT_JSON are not acceptable.\n"
     "Objective handling (from constraints.objective):\n"
     "- revenue: favor actions that plausibly increase sales volume or price where safe.\n"
     "- profit: be conservative on discounting; prefer hold/investigate unless signals support repricing.\n"
@@ -32,9 +37,24 @@ _SYSTEM = (
 )
 
 _FEW_SHOT = (
-    "FORMAT-ONLY example:\n"
-    '{"ranked_actions":[{"product_id":"EXAMPLE_1","action_type":"reprice","recommended_price_change_pct":0.0,'
-    '"rationale_bullets":["...","..."],"risk_bullets":["..."]}]}\n'
+    "FORMAT-ONLY example (do not use these product_ids — show grounded rationale):\n"
+    '{"ranked_actions":['
+    '{"product_id":"EXAMPLE_1","action_type":"reprice","recommended_price_change_pct":2.5,'
+    '"rationale_bullets":['
+    '"recommended_price_change_pct=2.5% from cache (small delta, large_delta=false); safe to reprice.",'
+    '"p_neg=0.04 (n_reviews=24) and total_returns=0 support upward reprice without sentiment risk."'
+    '],"risk_bullets":["Monitor p_neg — if it rises above 0.20, revisit reprice direction."]},'
+    '{"product_id":"EXAMPLE_2","action_type":"hold","recommended_price_change_pct":0.0,'
+    '"rationale_bullets":['
+    '"stock_status=low_stock (risk_flag=true); holding price to prevent stockout under current demand.",'
+    '"recommended_price_change_pct=7.60% with large_delta=true — delta too large to act on safely given inventory risk."'
+    '],"risk_bullets":["total_returns=6 may indicate quality issue; investigate if stock is replenished."]},'
+    '{"product_id":"EXAMPLE_3","action_type":"investigate","recommended_price_change_pct":0.0,'
+    '"rationale_bullets":['
+    '"price_missing=true (fallback source); cannot ground a reprice recommendation without a cache signal.",'
+    '"p_neg=0.18 (n_reviews=17) and total_returns=4 suggest a quality or listing issue worth investigating."'
+    '],"risk_bullets":["If investigation reveals no issue, revisit with a fresh pricing cache entry."]}'
+    ']}\n'
 )
 
 
@@ -204,8 +224,14 @@ def run(
         inv = (cand.get("inventory") or {})
         stock_status = str(inv.get("stock_status") or "unknown").lower()
         risk_flag = bool(inv.get("risk_flag", False))
+        pricing = (cand.get("pricing") or {})
+        large_delta = bool(pricing.get("large_delta", False))
+        suggested_ld = str(cand.get("suggested_action") or "").strip().lower()
         # If guardrail applies, do not override.
         if stock_status in {"low_stock", "stockout_risk"} or risk_flag:
+            continue
+        # Do not override if playbook says hold and the pricing delta is large (lower-trust signal).
+        if suggested_ld == "hold" and large_delta:
             continue
         a["action_type"] = adv_map[pid]["action_type"]
         a["recommended_price_change_pct"] = float(adv_map[pid]["recommended_price_change_pct"] or 0.0)
