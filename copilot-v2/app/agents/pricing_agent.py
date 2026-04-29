@@ -25,5 +25,3 @@ class PricingAgent:
             return {"product_id": pid, "predicted_price_change_pct": None, "found": False}
         return {"product_id": pid, "predicted_price_change_pct": self._cache[pid], "found": True}
 
-    def lookup_many(self, product_ids: list[str]) -> list[dict[str, object]]:
-        return [self.lookup(pid) for pid in product_ids]

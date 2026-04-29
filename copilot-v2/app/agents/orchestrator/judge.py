@@ -251,11 +251,18 @@ def run(
             a = by_judge_pid.get(pid)
             if a is None:
                 # If judge omitted this pid, synthesize from advocate proposal (still passes schema).
-                # Leave rationale_bullets empty so downstream can fill deterministic, signal-based bullets.
+                # Apply same large_delta + hold guardrail as debate linkage so synthesis cannot bypass it.
+                synth_action = adv_map.get(pid, {}).get("action_type", "reprice")
+                synth_price = float(adv_map.get(pid, {}).get("recommended_price_change_pct") or 0.0)
+                cand_s = by_pid.get(pid, {})
+                if bool((cand_s.get("pricing") or {}).get("large_delta", False)) and \
+                        str(cand_s.get("suggested_action") or "").strip().lower() == "hold":
+                    synth_action = "hold"
+                    synth_price = 0.0
                 a = {
                     "product_id": pid,
-                    "action_type": adv_map.get(pid, {}).get("action_type", "reprice"),
-                    "recommended_price_change_pct": float(adv_map.get(pid, {}).get("recommended_price_change_pct") or 0.0),
+                    "action_type": synth_action,
+                    "recommended_price_change_pct": synth_price,
                     "rationale_bullets": [],
                     "risk_bullets": [],
                 }

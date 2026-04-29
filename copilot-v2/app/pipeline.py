@@ -164,9 +164,9 @@ class Pipeline:
         q = retrieval_query or goal
         results = self.retrieval.retrieve(q, top_k=max(1, min(int(top_k_preview), 20)))
 
-        def _field(doc: str, key: str) -> str:
-            m = re.search(rf"^{re.escape(key)}:\\s*(.*)$", doc, flags=re.M)
-            return (m.group(1).strip() if m else "")
+        def _parse_field(doc: str, key: str) -> str:
+            m = re.search(rf"(?:^|\n){re.escape(key)}:\s*(.+?)(?:\n|$)", doc)
+            return m.group(1).strip() if m else ""
 
         cands = []
         for r in results:
@@ -174,9 +174,9 @@ class Pipeline:
             cands.append({
                 "product_id": str(r.get("product_id") or ""),
                 "score": float(r.get("retrieval_score") or 0.0),
-                "title": _field(doc, "title")[:140],
-                "category": _field(doc, "category")[:80],
-                "subcategory": _field(doc, "subcategory")[:80],
+                "title": (str(r.get("title") or "") or _parse_field(doc, "title"))[:140],
+                "category": (str(r.get("category") or "") or _parse_field(doc, "category"))[:80],
+                "subcategory": (str(r.get("subcategory") or "") or _parse_field(doc, "subcategory"))[:80],
             })
 
         return {
@@ -251,7 +251,9 @@ class Pipeline:
             return fixed, fixes
 
         goal_fixed, typo_fixes = _fix_common_intent_typos(goal)
-        goal_for_logic = goal_fixed
+        # Strip UI-appended scope hint before broad-goal analysis so it doesn't
+        # inflate the word count and bypass the query rewrite.
+        goal_for_logic = re.sub(r"\s*\(scope:[^)]*\)", "", goal_fixed).strip()
 
         # Heuristic: only rewrite when the goal looks broad/strategy-level.
         broad_markers = [
@@ -264,31 +266,21 @@ class Pipeline:
         has_specific_for_phrase = bool(
             re.search(r"\bfor\s+[a-z0-9][a-z0-9&'\\-]{3,}(?:\s+[a-z0-9][a-z0-9&'\\-]{2,}){0,4}\b", goal_l)
         )
-        if has_specific_for_phrase:
-            # Avoid rewriting if user already provided a concrete product/category after "for".
+        def _passthrough() -> dict[str, object]:
             if typo_fixes and goal_fixed != original_goal:
                 note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
-                return {
-                    "ok": True,
-                    "used": True,
-                    "original_goal": original_goal,
-                    "retrieval_query": goal_fixed,
-                    "notes": f"Typo corrected: {note}",
-                }
+                return {"ok": True, "used": True, "original_goal": original_goal, "retrieval_query": goal_fixed, "notes": f"Typo corrected: {note}"}
             return {"ok": True, "used": False, "original_goal": original_goal, "retrieval_query": original_goal}
 
-        is_broad = any(m in goal_l for m in broad_markers) and len(goal_for_logic.split()) <= 12
+        # Only skip rewrite for short "for X" goals (e.g. "grow revenue for Baking Cups").
+        # Longer sentences containing "for X" (e.g. "grow revenue for Canisters while controlling...")
+        # are still business jargon that needs rewriting.
+        if has_specific_for_phrase and len(goal_for_logic.split()) <= 7:
+            return _passthrough()
+
+        is_broad = any(m in goal_l for m in broad_markers) and len(goal_for_logic.split()) <= 20
         if not is_broad:
-            if typo_fixes and goal_fixed != original_goal:
-                note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
-                return {
-                    "ok": True,
-                    "used": True,
-                    "original_goal": original_goal,
-                    "retrieval_query": goal_fixed,
-                    "notes": f"Typo corrected: {note}",
-                }
-            return {"ok": True, "used": False, "original_goal": original_goal, "retrieval_query": original_goal}
+            return _passthrough()
 
         messages = [
             {
@@ -757,6 +749,7 @@ class Pipeline:
 
         return {
             "ok": True,
+            "run_id": run_id,
             "goal": goal,
             "enriched_candidates": enriched,
             "baseline_ranked_actions": baseline_ranked,
@@ -777,13 +770,17 @@ class Pipeline:
         judge_model: str = "qwen2.5:7b-instruct",
         prompt_style: str = "few_shot_json",
         prompt_version: str = "v1",
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         """Advocate + Critic round 1 on pre-enriched candidates. No retrieval."""
         constraints = constraints or {"max_abs_price_change_pct": 10.0}
-        ts = datetime.now(timezone.utc)
-        owner_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", owner_id)[:16]
-        run_id = f"{ts.strftime('%Y%m%d_%H%M%S')}_{owner_slug}_debate"
-        run_dir = self._runs_root / f"run_{run_id}"
+        if run_id:
+            run_dir = self._runs_root / f"run_{run_id}"
+        else:
+            ts = datetime.now(timezone.utc)
+            owner_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", owner_id)[:16]
+            run_id = f"{ts.strftime('%Y%m%d_%H%M%S')}_{owner_slug}_debate"
+            run_dir = self._runs_root / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         cfg = ACJConfig(
@@ -863,6 +860,7 @@ class Pipeline:
             "prompt_version": prompt_version,
             "human_review_mode": human_review_mode,
             "human_feedback": human_feedback,
+            "ab_mode": "B",
         }
         self._write_stage(run_dir, "0_config.json", config)
 
@@ -1017,16 +1015,20 @@ class Pipeline:
         prompt_style: str = "few_shot_json",
         prompt_version: str = "v1",
         human_feedback: str | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the judge exactly once on the final advocate + critic outputs."""
         constraints = constraints or {"max_abs_price_change_pct": 10.0}
         enriched_by_pid = {c["product_id"]: c for c in enriched_candidates}
         horizon_days = int(enriched_candidates[0].get("horizon_days", 7)) if enriched_candidates else 7
 
-        ts = datetime.now(timezone.utc)
-        owner_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", owner_id)[:16]
-        run_id = f"{ts.strftime('%Y%m%d_%H%M%S')}_{owner_slug}_judge"
-        run_dir = self._runs_root / f"run_{run_id}"
+        if run_id:
+            run_dir = self._runs_root / f"run_{run_id}"
+        else:
+            ts = datetime.now(timezone.utc)
+            owner_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", owner_id)[:16]
+            run_id = f"{ts.strftime('%Y%m%d_%H%M%S')}_{owner_slug}_judge"
+            run_dir = self._runs_root / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         cfg = ACJConfig(

@@ -523,6 +523,14 @@ These are the main reasons outputs can still feel “not reasonable” even afte
 - Keep tracking: parse retries, fallback usage, and latency (index/model load can be heavy).
 - Recommended UX: when the system is degraded (LLM down / caches missing), show explicit UI messaging and avoid producing high-confidence-looking plans.
 
+### 9) Action classification thresholds are hardcoded (not configurable)
+
+- The playbook rules in `pipeline.py` that determine `suggested_action` use fixed signal thresholds (e.g. `total_returns >= 2`, `p_neg >= 0.20`, `p_neg >= 0.30`, `n_reviews >= 10`).
+- These are reasonable defaults and produce correct outputs for the current dataset, but they are not exposed as env vars or request parameters.
+- For a production system or different product categories, these thresholds may need tuning — currently that requires a code change.
+- **Note**: the shrinkage clamping bounds (0.70, 0.60, 0.80) are also hardcoded but intentionally so — they act as safety guardrails and should not be made configurable.
+
+
 ---
 
 ## Post-implementation fixes (after A–G + UI redesign)

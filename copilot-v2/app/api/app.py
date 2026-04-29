@@ -23,7 +23,10 @@ from app.api.schemas import (
     DebateContinueResponse,
     DebateJudgeRequest,
     DebateJudgeResponse,
+    ABEventRequest,
+    ABSaveRunRequest,
 )
+from app.ab import assign_variant, log_event, save_version_a_run
 from app.pipeline import Pipeline, SNAPSHOT_ID
 
 app = FastAPI(title="Seller Copilot API", version="2.0.0")
@@ -119,6 +122,7 @@ def debate_start(req: DebateStartRequest) -> DebateStartResponse:
         judge_model=req.judge_model,
         prompt_style=req.prompt_style,
         prompt_version=req.prompt_version,
+        run_id=req.run_id,
     )
     return DebateStartResponse(**result)
 
@@ -165,8 +169,42 @@ def debate_judge(req: DebateJudgeRequest) -> DebateJudgeResponse:
         prompt_style=req.prompt_style,
         prompt_version=req.prompt_version,
         human_feedback=req.human_feedback,
+        run_id=req.run_id,
     )
     return DebateJudgeResponse(**result)
+
+
+@app.get("/ab/variant/{owner_id}")
+def ab_variant(owner_id: str) -> dict:
+    return {"owner_id": owner_id, "variant": assign_variant(owner_id)}
+
+
+@app.post("/ab/event")
+def ab_event(req: ABEventRequest) -> dict:
+    log_event(
+        owner_id=req.owner_id,
+        variant=req.variant,
+        run_id=req.run_id,
+        event=req.event,
+        metadata=req.metadata,
+    )
+    return {"ok": True}
+
+
+@app.post("/ab/save_run")
+def ab_save_run(req: ABSaveRunRequest) -> dict:
+    p = get_pipeline()
+    run_id = save_version_a_run(
+        owner_id=req.owner_id,
+        variant=req.variant,
+        goal=req.goal,
+        retrieval_candidates=req.retrieval_candidates,
+        decisions=req.decisions,
+        time_to_decision_s=req.time_to_decision_s,
+        confidence_rating=req.confidence_rating,
+        runs_root=p._runs_root,
+    )
+    return {"ok": True, "run_id": run_id}
 
 
 @app.post("/orchestrate", response_model=OrchestrateResponse)

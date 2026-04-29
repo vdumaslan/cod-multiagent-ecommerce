@@ -36,5 +36,3 @@ class InventoryAgent:
             return {"product_id": pid, "found": False, "stock_status": "unknown", "risk_flag": False}
         return {"product_id": pid, "found": True, **self._cache[pid]}
 
-    def lookup_many(self, product_ids: list[str]) -> list[dict[str, object]]:
-        return [self.lookup(pid) for pid in product_ids]

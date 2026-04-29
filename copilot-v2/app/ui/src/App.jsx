@@ -208,6 +208,47 @@ export default function App() {
   const [excludeStockoutRisk, setExcludeStockoutRisk] = useState(false);
   const [doNotRaiseIfPNegAbove, setDoNotRaiseIfPNegAbove] = useState("");
 
+  // A/B testing
+  const [abMode, setAbMode] = useState("B"); // "A" = no AI, "B" = full system
+  const [abVariant, setAbVariant] = useState("");
+  const [showConfidence, setShowConfidence] = useState(false);
+  const [versionAResults, setVersionAResults] = useState([]);
+  const [versionADecisions, setVersionADecisions] = useState({});
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  const formatElapsed = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${String(sec).padStart(2, "0")}`;
+  };
+
+  const activeResultViews = ["version-a-results", "debate", "results"];
+  useEffect(() => {
+    if (!activeResultViews.includes(view) || showConfidence) {
+      setElapsedSeconds(0);
+      return undefined;
+    }
+    setElapsedSeconds(sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : 0);
+    const id = setInterval(() => {
+      setElapsedSeconds(sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : 0);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [view, showConfidence]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const postAbEvent = (event, metadata = {}) => {
+    fetch(`${API_BASE}/ab/event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner_id: DEFAULT_OWNER_ID,
+        variant: abVariant || abMode,
+        run_id: pipelineResult?.run_id || "",
+        event,
+        metadata,
+      }),
+    }).catch(() => {});
+  };
+
   const parseOptionalFloat = (v) => {
     const s = String(v ?? "").trim();
     if (!s) return null;
@@ -222,6 +263,8 @@ export default function App() {
 
   const debateTimersRef = useRef([]);
   const saveTimerRef = useRef(null);
+  const sessionStartRef = useRef(null);
+  const pendingChosenPlanRef = useRef(null);
 
   // ── Health check ────────────────────────────────────────────────────────────
 
@@ -242,6 +285,19 @@ export default function App() {
     const id = setInterval(check, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
+
+  useEffect(() => {
+    getJson(`/ab/variant/${DEFAULT_OWNER_ID}`)
+      .then((d) => {
+        setAbVariant(d.variant || "");
+        fetch(`${API_BASE}/ab/event`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner_id: DEFAULT_OWNER_ID, variant: d.variant || "", run_id: "", event: "session_start", metadata: { mode: abMode } }),
+        }).catch(() => {});
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -371,6 +427,87 @@ export default function App() {
       .catch(() => { setView("query"); setIsLoading(false); });
   };
 
+  // ── Version A: manual decision flow ───────────────────────────────────────
+
+  const handleSubmitQueryVersionA = () => {
+    if (!query.trim()) return;
+    setIsLoading(true);
+    // Build a concrete product-oriented query from category/subcategory so the
+    // query rewrite doesn't treat it as a vague business goal and ask for clarification.
+    const categoryTerm = selectedSubcategory || selectedCategory || "";
+    const retrievalGoal = categoryTerm
+      ? `${categoryTerm} products`
+      : query.trim();
+    postJson("/retrieval/preview", {
+      goal: retrievalGoal,
+      top_k_preview: 5,
+      constraints: { max_abs_price_change_pct: 10, objective: "revenue" },
+    })
+      .then((data) => {
+        if (data.clarifying_question && !(data.top_candidates || []).length) {
+          setClarifyingQuestion(data.clarifying_question);
+          setIsLoading(false);
+          return;
+        }
+        setClarifyingQuestion("");
+        const candidates = data.top_candidates || [];
+        setVersionAResults(candidates);
+        const initial = {};
+        candidates.forEach((c) => { initial[c.product_id] = { action: "reprice", priceChangePct: "0" }; });
+        setVersionADecisions(initial);
+        setIsLoading(false);
+        sessionStartRef.current = Date.now();
+        setView("version-a-results");
+      })
+      .catch(() => setIsLoading(false));
+  };
+
+  const handleVersionASubmitDecision = () => {
+    const elapsed = sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : null;
+    postAbEvent("decision_made", { mode: "A", time_to_decision_s: elapsed, decisions: versionADecisions });
+    pendingChosenPlanRef.current = "version-a";
+    setShowConfidence(true);
+  };
+
+  const handleConfidenceRate = (rating) => {
+    postAbEvent("confidence_rated", { rating, mode: abMode });
+    setShowConfidence(false);
+    const pending = pendingChosenPlanRef.current;
+    pendingChosenPlanRef.current = null;
+    if (pending === "version-a") {
+      const elapsed = sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : null;
+      fetch(`${API_BASE}/ab/save_run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner_id: DEFAULT_OWNER_ID,
+          variant: abVariant || abMode,
+          goal: query,
+          retrieval_candidates: versionAResults,
+          decisions: versionADecisions,
+          time_to_decision_s: elapsed,
+          confidence_rating: rating,
+        }),
+      }).catch(() => {});
+      setVersionAResults([]);
+      setVersionADecisions({});
+      setQuery("");
+      setIsLoading(false);
+      setView("query");
+    } else if (pending) {
+      // continue with Version B save animation
+      const chosen = plans.find((p) => p.id === pending);
+      if (!chosen) return;
+      setSelectedPlanId(pending);
+      setIsSavingPlan(true);
+      setSaveStatusMessage(`Saving "${chosen.title}"...`);
+      saveTimerRef.current = setTimeout(() => {
+        setSaveStatusMessage(`Saved "${chosen.title}".`);
+        saveTimerRef.current = setTimeout(handleRejectAll, 1200);
+      }, 1000);
+    }
+  };
+
   // Pipeline animation — Inventory stays "running" until API returns
   useEffect(() => {
     if (view !== "pipeline") return undefined;
@@ -408,6 +545,7 @@ export default function App() {
         return;
       }
       setIsLoading(false);
+      sessionStartRef.current = Date.now();
       setView("debate");
     }, 400);
     return () => clearTimeout(t);
@@ -431,6 +569,7 @@ export default function App() {
     postJson("/debate/start", {
       goal: query,
       owner_id: DEFAULT_OWNER_ID,
+      run_id: pipelineResult?.run_id || undefined,
       top_n_actions: topNActions,
       constraints: {
         max_abs_price_change_pct: maxAbsPriceChangePct,
@@ -551,6 +690,7 @@ export default function App() {
       const data = await postJson("/debate/judge", {
         goal: query,
         owner_id: DEFAULT_OWNER_ID,
+        run_id: pipelineResult?.run_id || undefined,
         top_n_actions: topNActions,
         constraints: {
           max_abs_price_change_pct: maxAbsPriceChangePct,
@@ -590,9 +730,15 @@ export default function App() {
   // ── Step 4: results ─────────────────────────────────────────────────────────
 
   const handleRejectAll = () => {
+    if (view === "results" && !selectedPlanId) {
+      const elapsed = sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : null;
+      postAbEvent("abandoned", { mode: "B", time_to_decision_s: elapsed });
+    }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     clearDebateTimers();
     setSelectedPlanId(null);
+    setVersionAResults([]);
+    setVersionADecisions({});
     setQuery("");
     setDebateLog([]);
     setIsDebatePlaying(false);
@@ -615,14 +761,10 @@ export default function App() {
   const handleChoosePlan = (planId) => {
     const chosen = plans.find((p) => p.id === planId);
     if (!chosen) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    setSelectedPlanId(planId);
-    setIsSavingPlan(true);
-    setSaveStatusMessage(`Saving "${chosen.title}"...`);
-    saveTimerRef.current = setTimeout(() => {
-      setSaveStatusMessage(`Saved "${chosen.title}".`);
-      saveTimerRef.current = setTimeout(handleRejectAll, 1200);
-    }, 1000);
+    const elapsed = sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : null;
+    postAbEvent("decision_made", { mode: "B", time_to_decision_s: elapsed, plan_id: planId });
+    pendingChosenPlanRef.current = planId;
+    setShowConfidence(true);
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -632,23 +774,50 @@ export default function App() {
       <div className="mx-auto mb-8 max-w-6xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm uppercase tracking-[0.2em] text-cyan-400">Multi-Agent BI Dashboard</p>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
-              apiHealth === "online" ? "bg-emerald-500/20 text-emerald-300"
-              : apiHealth === "offline" ? "bg-rose-500/20 text-rose-300"
-              : apiHealth === "degraded" ? "bg-orange-500/20 text-orange-300"
-              : "bg-amber-500/20 text-amber-300"
-            }`}
-          >
-            API {apiHealth}
-          </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">Version A</span>
+              <button
+                onClick={() => {
+                  const next = abMode === "A" ? "B" : "A";
+                  setAbMode(next);
+                  setView("query");
+                  setVersionAResults([]);
+                  setVersionADecisions([]);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${abMode === "B" ? "bg-cyan-600" : "bg-slate-600"}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${abMode === "B" ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+              <span className="text-xs text-slate-400">Version B</span>
+            </div>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
+                apiHealth === "online" ? "bg-emerald-500/20 text-emerald-300"
+                : apiHealth === "offline" ? "bg-rose-500/20 text-rose-300"
+                : apiHealth === "degraded" ? "bg-orange-500/20 text-orange-300"
+                : "bg-amber-500/20 text-amber-300"
+              }`}
+            >
+              API {apiHealth}
+            </span>
+          </div>
         </div>
-        <p className="mt-2 text-slate-400">
-          Flow: query → pipeline → debate (round {roundNumber}) → judge → results
-        </p>
+        <div className="mt-2 flex items-center gap-4">
+          <p className="text-slate-400">
+            {abMode === "A"
+              ? "Version A — Manual decisions (no AI)"
+              : `Version B — AI assisted · query → pipeline → debate (round ${roundNumber}) → judge → results`}
+          </p>
+          {activeResultViews.includes(view) && (
+            <span className="rounded-full bg-slate-800 px-3 py-1 font-mono text-sm text-cyan-400 border border-slate-700">
+              ⏱ {formatElapsed(elapsedSeconds)}
+            </span>
+          )}
+        </div>
       </div>
 
-      {view === "query" && (
+      {view === "query" && abMode === "B" && (
         <QueryInputView
           query={query}
           setQuery={setQuery}
@@ -678,6 +847,67 @@ export default function App() {
           doNotRaiseIfPNegAbove={doNotRaiseIfPNegAbove}
           setDoNotRaiseIfPNegAbove={setDoNotRaiseIfPNegAbove}
         />
+      )}
+
+      {view === "query" && abMode === "A" && (
+        <div className="mx-auto max-w-2xl space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-100">What are you trying to improve?</h2>
+            <p className="mt-1 text-sm text-slate-400">Describe your goal in plain language.</p>
+          </div>
+          <textarea
+            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+            rows={3}
+            placeholder="e.g. increase revenue for kitchen products"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmitQueryVersionA(); } }}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-slate-400">Category</label>
+              <select
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                value={selectedCategory}
+                onChange={(e) => { setSelectedCategory(e.target.value); setSelectedSubcategory(""); }}
+              >
+                <option value="">(Any)</option>
+                {(catalogFacets?.categories || []).map((c) => (
+                  <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-slate-400">Subcategory</label>
+              <select
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                value={selectedSubcategory}
+                onChange={(e) => setSelectedSubcategory(e.target.value)}
+                disabled={!selectedCategory}
+              >
+                <option value="">(Any)</option>
+                {(catalogFacets?.subcategories_by_category?.[selectedCategory] || []).map((s) => (
+                  <option key={s.name} value={s.name}>{s.name} ({s.count})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {clarifyingQuestion && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+              <span className="font-semibold">Needs more detail: </span>{clarifyingQuestion}
+            </div>
+          )}
+          {!selectedCategory && query.trim() && (
+            <p className="text-xs text-slate-400">Select a category to get better results.</p>
+          )}
+          <button
+            onClick={handleSubmitQueryVersionA}
+            disabled={!query.trim() || isLoading}
+            className="w-full rounded-xl bg-cyan-600 py-3 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-40"
+          >
+            {isLoading ? "Loading products..." : "Find Products"}
+          </button>
+        </div>
       )}
 
       {view === "pipeline" && <PipelineStatusView agents={pipeline} />}
@@ -711,6 +941,89 @@ export default function App() {
           isSavingPlan={isSavingPlan}
           saveStatusMessage={saveStatusMessage}
         />
+      )}
+      {view === "version-a-results" && (
+        <div className="mx-auto max-w-4xl space-y-4">
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-slate-200">Products matching your goal</h2>
+            <p className="text-sm text-slate-400">Review the list and assign actions manually.</p>
+          </div>
+          {versionAResults.length === 0 && (
+            <p className="text-slate-400">No products found. Try a different goal.</p>
+          )}
+          {versionAResults.map((c) => {
+            const dec = versionADecisions[c.product_id] || { action: "reprice", priceChangePct: "0" };
+            return (
+              <div key={c.product_id} className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-slate-100">{c.title || c.product_id}</p>
+                    <p className="text-xs text-slate-400">{c.category}{c.subcategory ? ` › ${c.subcategory}` : ""}</p>
+                    <p className="mt-1 text-xs text-slate-500">Match score: {Math.round(c.score * 100)}%</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <select
+                      value={dec.action}
+                      onChange={(e) => setVersionADecisions((prev) => ({ ...prev, [c.product_id]: { ...prev[c.product_id], action: e.target.value } }))}
+                      className="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+                    >
+                      <option value="reprice">Reprice</option>
+                      <option value="restock">Restock</option>
+                      <option value="promote">Promote</option>
+                      <option value="hold">Hold</option>
+                      <option value="investigate">Investigate</option>
+                    </select>
+                    {dec.action === "reprice" && (
+                      <input
+                        type="number"
+                        value={dec.priceChangePct}
+                        onChange={(e) => setVersionADecisions((prev) => ({ ...prev, [c.product_id]: { ...prev[c.product_id], priceChangePct: e.target.value } }))}
+                        className="w-24 rounded border border-slate-600 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+                        placeholder="% change"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={handleVersionASubmitDecision}
+              disabled={versionAResults.length === 0}
+              className="rounded-lg bg-cyan-600 px-6 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-40"
+            >
+              Submit Decision
+            </button>
+            <button
+              onClick={handleRejectAll}
+              className="rounded-lg border border-slate-600 px-6 py-2 text-sm text-slate-300 hover:bg-slate-800"
+            >
+              Start Over
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showConfidence && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-80 rounded-2xl bg-slate-800 p-8 text-center shadow-2xl">
+            <p className="mb-1 text-lg font-semibold text-slate-100">How confident are you?</p>
+            <p className="mb-6 text-sm text-slate-400">Rate your confidence in this decision</p>
+            <div className="flex justify-center gap-3">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => handleConfidenceRate(n)}
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-600 text-sm font-bold text-slate-300 hover:border-cyan-400 hover:bg-cyan-600/20 hover:text-cyan-300"
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-slate-500">1 = Not confident · 5 = Very confident</p>
+          </div>
+        </div>
       )}
     </main>
   );

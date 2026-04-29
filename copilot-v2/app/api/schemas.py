@@ -45,6 +45,7 @@ class PipelineRequest(BaseModel):
 class DebateStartRequest(BaseModel):
     goal: str
     owner_id: str
+    run_id: str | None = None
     constraints: Constraints = Field(default_factory=Constraints)
     enriched_candidates: list[dict[str, Any]]
     baseline_actions: list[dict[str, Any]]
@@ -120,6 +121,7 @@ class TraceInfo(BaseModel):
 
 class PipelineResponse(BaseModel):
     ok: bool
+    run_id: str = ""
     goal: str
     enriched_candidates: list[dict[str, Any]]
     baseline_ranked_actions: list[RankedAction]
@@ -172,6 +174,7 @@ class DebateContinueResponse(BaseModel):
 class DebateJudgeRequest(BaseModel):
     goal: str
     owner_id: str
+    run_id: str | None = None
     constraints: Constraints = Field(default_factory=Constraints)
     enriched_candidates: list[dict[str, Any]]
     baseline_actions: list[dict[str, Any]]
@@ -189,6 +192,24 @@ class DebateJudgeResponse(BaseModel):
     ranked_actions: list[RankedAction]
     judge_raw: dict[str, Any] = Field(default_factory=dict)
     judge_fallback: bool = False
+
+
+class ABEventRequest(BaseModel):
+    owner_id: str
+    variant: str
+    run_id: str = ""
+    event: Literal["session_start", "decision_made", "abandoned", "confidence_rated"]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ABSaveRunRequest(BaseModel):
+    owner_id: str
+    variant: str
+    goal: str
+    retrieval_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    decisions: dict[str, Any] = Field(default_factory=dict)
+    time_to_decision_s: int | None = None
+    confidence_rating: int | None = None
 
 
 class HealthResponse(BaseModel):

@@ -31,5 +31,3 @@ class SentimentAgent:
             return {"product_id": pid, "found": False, "n_reviews": None, "p_pos": None, "p_neu": None, "p_neg": None}
         return {"product_id": pid, "found": True, **self._cache[pid]}
 
-    def lookup_many(self, product_ids: list[str]) -> list[dict[str, object]]:
-        return [self.lookup(pid) for pid in product_ids]

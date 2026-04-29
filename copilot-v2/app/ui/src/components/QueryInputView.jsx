@@ -212,9 +212,10 @@ export default function QueryInputView({
         {!matchPreview ? (
           <p className="mt-2 text-sm text-slate-400">Type a goal to see how many strong matches exist.</p>
         ) : matchPreview.clarifying_question && (!matchPreview.retrieval_query || matchPreview.retrieval_query.trim() === "") ? (
-          <div className="mt-2 rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2">
+          <div className="mt-2 rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 space-y-1">
             <p className="text-sm font-semibold text-amber-200">Needs clarification</p>
-            <p className="mt-1 text-sm text-amber-100">{matchPreview.clarifying_question}</p>
+            <p className="text-sm text-amber-100">{matchPreview.clarifying_question}</p>
+            <p className="text-xs text-amber-200/60">You can still submit, but the pipeline may ask for clarification again and return you to this page. Adding a subcategory or a concrete product keyword improves your chances of getting results.</p>
           </div>
         ) : (
           <div className="mt-2">
@@ -235,9 +236,14 @@ export default function QueryInputView({
               </ul>
             )}
             {!matchPreview.n_candidates_above_min_score && (
-              <p className="mt-2 text-sm text-slate-400">
-                No strong matches. Add a category/subcategory or example product keyword.
-              </p>
+              <div className="mt-2 space-y-1">
+                <p className="text-sm text-slate-400">
+                  No strong matches. Add a category/subcategory or example product keyword.
+                </p>
+                <p className="text-xs text-slate-500">
+                  You can still submit — the pipeline will rewrite your goal and search more broadly.
+                </p>
+              </div>
             )}
           </div>
         )}
