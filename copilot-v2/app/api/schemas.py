@@ -3,15 +3,39 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Constraints(BaseModel):
     max_abs_price_change_pct: float = 10.0
-    objective: Literal["revenue", "profit", "clear_inventory", "reduce_returns", "avoid_stockouts"] = "revenue"
+    # Accept a few aliases to keep older UIs / test harnesses working.
+    objective: Literal[
+        "revenue",
+        "profit",
+        "profit_proxy",
+        "clear_inventory",
+        "clear-inventory",
+        "liquidation",
+        "reduce_returns",
+        "avoid_stockouts",
+    ] = "revenue"
     do_not_raise_if_p_neg_above: float | None = None
     exclude_low_stock: bool = False
     exclude_stockout_risk: bool = False
+
+    @field_validator("objective", mode="before")
+    @classmethod
+    def _normalize_objective(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        s = str(v).strip().lower()
+        if s in {"profit_proxy"}:
+            return "profit"
+        if s in {"clear-inventory"}:
+            return "clear_inventory"
+        if s in {"liquidation"}:
+            return "clear_inventory"
+        return s
 
 
 class OrchestrateRequest(BaseModel):
@@ -117,6 +141,7 @@ class TraceInfo(BaseModel):
     sentiment: dict[str, Any] = Field(default_factory=dict)
     inventory: dict[str, Any] = Field(default_factory=dict)
     demo_allowlist_size: int = 0
+    rl: dict[str, Any] = Field(default_factory=dict)
 
 
 class PipelineResponse(BaseModel):

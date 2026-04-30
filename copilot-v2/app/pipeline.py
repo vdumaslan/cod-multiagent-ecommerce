@@ -15,6 +15,7 @@ from app.agents.sentiment_agent import SentimentAgent
 from app.agents.inventory_agent import InventoryAgent
 from app.agents.orchestrator.orchestrator import ACJConfig, run_acj, continue_acj, run_judge_only
 from app.llm import OllamaClient, extract_json_object
+from app.rl import default_arms, load_state, save_state, select_arm, attach_run
 
 SNAPSHOT_ID = "38710839ca6e1009"
 
@@ -694,6 +695,82 @@ class Pipeline:
             json.dumps(data, indent=2, default=_json_default), encoding="utf-8"
         )
 
+    def _apply_rl_policy_for_run(
+        self,
+        *,
+        run_id: str,
+        owner_id: str,
+        constraints: dict[str, Any],
+        goal: str,
+    ) -> tuple[dict[str, Any], dict[str, str | float | None]]:
+        """Select an RL arm and apply its knob overrides for this run.
+
+        Returns (trace_rl_info, restore_snapshot).
+        """
+        arms = default_arms()
+        st = load_state(arms)
+        arm = select_arm(arms=arms, state=st)
+        attach_run(st, run_id=run_id, arm_id=arm.arm_id)
+        save_state(st)
+
+        # Snapshot current globals we mutate.
+        restore = {
+            "prev_enable_query_rewrite": os.environ.get("COPILOT_ENABLE_QUERY_REWRITE", None),
+            "prev_enable_pricing_shrinkage": os.environ.get("COPILOT_ENABLE_PRICING_SHRINKAGE", None),
+            "prev_retrieval_min_score": float(self.retrieval.config.min_score or 0.0),
+        }
+
+        cfg = arm.config or {}
+        # Apply: retrieval min score
+        if cfg.get("retrieval_min_score") is not None:
+            try:
+                self.retrieval.config.min_score = float(cfg["retrieval_min_score"])
+            except Exception:
+                pass
+        # Apply: query rewrite enable
+        if cfg.get("enable_query_rewrite") is not None:
+            os.environ["COPILOT_ENABLE_QUERY_REWRITE"] = "1" if bool(cfg["enable_query_rewrite"]) else "0"
+        # Apply: pricing shrinkage enable
+        if cfg.get("enable_pricing_shrinkage") is not None:
+            os.environ["COPILOT_ENABLE_PRICING_SHRINKAGE"] = "1" if bool(cfg["enable_pricing_shrinkage"]) else "0"
+
+        return (
+            {
+                "enabled": True,
+                "arm_id": arm.arm_id,
+                "arm_name": arm.name,
+                "config": cfg,
+                "applied": {
+                    "retrieval_min_score": float(self.retrieval.config.min_score or 0.0),
+                    "enable_query_rewrite": os.environ.get("COPILOT_ENABLE_QUERY_REWRITE", "1"),
+                    "enable_pricing_shrinkage": os.environ.get("COPILOT_ENABLE_PRICING_SHRINKAGE", "0"),
+                },
+                "run_id": run_id,
+                "owner_id": owner_id,
+                "goal": goal[:200],
+                "objective": (constraints or {}).get("objective", "revenue"),
+            },
+            restore,
+        )
+
+    def _restore_rl_mutations(self, restore: dict[str, str | float | None]) -> None:
+        try:
+            self.retrieval.config.min_score = float(restore.get("prev_retrieval_min_score") or 0.80)
+        except Exception:
+            pass
+
+        prev_qr = restore.get("prev_enable_query_rewrite")
+        if prev_qr is None:
+            os.environ.pop("COPILOT_ENABLE_QUERY_REWRITE", None)
+        else:
+            os.environ["COPILOT_ENABLE_QUERY_REWRITE"] = str(prev_qr)
+
+        prev_sh = restore.get("prev_enable_pricing_shrinkage")
+        if prev_sh is None:
+            os.environ.pop("COPILOT_ENABLE_PRICING_SHRINKAGE", None)
+        else:
+            os.environ["COPILOT_ENABLE_PRICING_SHRINKAGE"] = str(prev_sh)
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -717,44 +794,60 @@ class Pipeline:
         run_dir = self._runs_root / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        rewrite = self._rewrite_goal_for_retrieval(goal)
-        self._write_stage(run_dir, "0_query_rewrite.json", rewrite)
-        retrieval_query = str(rewrite.get("retrieval_query") or "").strip() or goal
-        candidates_raw = self.retrieval.retrieve(retrieval_query)
-        self._write_stage(run_dir, "1_retrieval.json", candidates_raw)
+        rl_restore: dict[str, str | float | None] | None = None
+        rl_trace: dict[str, Any] = {"enabled": False}
+        try:
+            # Apply RL policy for Version B runs (pipeline is the Version B entrypoint).
+            rl_trace, rl_restore = self._apply_rl_policy_for_run(
+                run_id=run_id, owner_id=owner_id, constraints=constraints, goal=goal
+            )
+        except Exception:
+            rl_restore = None
+            rl_trace = {"enabled": False, "error": "rl_select_failed"}
 
-        enriched = self._enrich(
-            candidates_raw,
-            horizon_days=horizon_days,
-            enable_pricing=enable_pricing,
-            enable_sentiment=enable_sentiment,
-            constraints=constraints,
-        )
-        self._write_stage(run_dir, "2_enriched.json", enriched)
+        try:
+            rewrite = self._rewrite_goal_for_retrieval(goal)
+            self._write_stage(run_dir, "0_query_rewrite.json", rewrite)
+            retrieval_query = str(rewrite.get("retrieval_query") or "").strip() or goal
+            candidates_raw = self.retrieval.retrieve(retrieval_query)
+            self._write_stage(run_dir, "1_retrieval.json", candidates_raw)
 
-        baseline_for_judge = [{**c, "recommended_price_change_pct": 0.0} for c in enriched]
-        baseline_ranked = self._make_baseline(baseline_for_judge, top_n_actions)
-        self._write_stage(run_dir, "3_baseline.json", baseline_ranked)
+            enriched = self._enrich(
+                candidates_raw,
+                horizon_days=horizon_days,
+                enable_pricing=enable_pricing,
+                enable_sentiment=enable_sentiment,
+                constraints=constraints,
+            )
+            self._write_stage(run_dir, "2_enriched.json", enriched)
 
-        trace = {
-            "snapshot_id": self.snapshot_id,
-            "owner_id": owner_id,
-            "retrieval_index_meta": self._index_meta,
-            "query_rewrite": {k: rewrite.get(k) for k in ("used", "retrieval_query", "clarifying_question", "notes")},
-            "pricing": {"wired": enable_pricing, "source": "cache"},
-            "sentiment": {"wired": enable_sentiment, "source": "cache"},
-            "inventory": {"wired": True, "mode": "rules_v1"},
-            "demo_allowlist_size": 0,
-        }
+            baseline_for_judge = [{**c, "recommended_price_change_pct": 0.0} for c in enriched]
+            baseline_ranked = self._make_baseline(baseline_for_judge, top_n_actions)
+            self._write_stage(run_dir, "3_baseline.json", baseline_ranked)
 
-        return {
-            "ok": True,
-            "run_id": run_id,
-            "goal": goal,
-            "enriched_candidates": enriched,
-            "baseline_ranked_actions": baseline_ranked,
-            "trace": trace,
-        }
+            trace = {
+                "snapshot_id": self.snapshot_id,
+                "owner_id": owner_id,
+                "retrieval_index_meta": self._index_meta,
+                "query_rewrite": {k: rewrite.get(k) for k in ("used", "retrieval_query", "clarifying_question", "notes")},
+                "pricing": {"wired": enable_pricing, "source": "cache"},
+                "sentiment": {"wired": enable_sentiment, "source": "cache"},
+                "inventory": {"wired": True, "mode": "rules_v1"},
+                "demo_allowlist_size": 0,
+                "rl": rl_trace,
+            }
+
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "goal": goal,
+                "enriched_candidates": enriched,
+                "baseline_ranked_actions": baseline_ranked,
+                "trace": trace,
+            }
+        finally:
+            if rl_restore is not None:
+                self._restore_rl_mutations(rl_restore)
 
     def start_debate(
         self,
@@ -864,6 +957,16 @@ class Pipeline:
         }
         self._write_stage(run_dir, "0_config.json", config)
 
+        rl_restore: dict[str, str | float | None] | None = None
+        rl_trace: dict[str, Any] = {"enabled": False}
+        try:
+            rl_trace, rl_restore = self._apply_rl_policy_for_run(
+                run_id=run_id, owner_id=owner_id, constraints=constraints, goal=goal
+            )
+        except Exception:
+            rl_restore = None
+            rl_trace = {"enabled": False, "error": "rl_select_failed"}
+
         # 1. Retrieve candidates
         rewrite = self._rewrite_goal_for_retrieval(goal)
         self._write_stage(run_dir, "0_query_rewrite.json", rewrite)
@@ -923,6 +1026,7 @@ class Pipeline:
             "sentiment": {"wired": enable_sentiment, "source": "cache"},
             "inventory": {"wired": True, "mode": "rules_v1"},
             "demo_allowlist_size": 0,
+            "rl": rl_trace,
         }
 
         # ranked_actions are baseline until the judge runs via /debate/judge
@@ -942,7 +1046,11 @@ class Pipeline:
             "debate_trace": debate_trace,
         }
 
-        return response
+        try:
+            return response
+        finally:
+            if rl_restore is not None:
+                self._restore_rl_mutations(rl_restore)
 
     def continue_debate(
         self,

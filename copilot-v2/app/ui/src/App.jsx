@@ -209,8 +209,9 @@ export default function App() {
   const [doNotRaiseIfPNegAbove, setDoNotRaiseIfPNegAbove] = useState("");
 
   // A/B testing
-  const [abMode, setAbMode] = useState("B"); // "A" = no AI, "B" = full system
-  const [abVariant, setAbVariant] = useState("");
+  const [abMode, setAbMode] = useState("B"); // mode used right now: "A" manual, "B" AI
+  const [abVariant, setAbVariant] = useState(""); // assigned variant for analytics
+  const [abId, setAbId] = useState(""); // stable browser identifier for assignment/logging
   const [showConfidence, setShowConfidence] = useState(false);
   const [versionAResults, setVersionAResults] = useState([]);
   const [versionADecisions, setVersionADecisions] = useState({});
@@ -240,11 +241,11 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        owner_id: DEFAULT_OWNER_ID,
-        variant: abVariant || abMode,
+        owner_id: abId || DEFAULT_OWNER_ID,
+        variant: abVariant || "",
         run_id: pipelineResult?.run_id || "",
         event,
-        metadata,
+        metadata: { ...metadata, mode_used: abMode, assigned_variant: abVariant || "" },
       }),
     }).catch(() => {});
   };
@@ -287,16 +288,38 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    getJson(`/ab/variant/${DEFAULT_OWNER_ID}`)
-      .then((d) => {
-        setAbVariant(d.variant || "");
-        fetch(`${API_BASE}/ab/event`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ owner_id: DEFAULT_OWNER_ID, variant: d.variant || "", run_id: "", event: "session_start", metadata: { mode: abMode } }),
-        }).catch(() => {});
-      })
-      .catch(() => {});
+    // True A/B needs a stable identifier; use a browser-scoped visitor id.
+    try {
+      const key = "copilot_ab_visitor_id";
+      let vid = window.localStorage.getItem(key);
+      if (!vid) {
+        vid = `visitor_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+        window.localStorage.setItem(key, vid);
+      }
+      setAbId(vid);
+      getJson(`/ab/variant/${encodeURIComponent(vid)}`)
+        .then((d) => {
+          const v = d.variant || "";
+          setAbVariant(v);
+          // Default to assigned mode for convenience (user can still switch freely).
+          if (v) setAbMode(v);
+          fetch(`${API_BASE}/ab/event`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              owner_id: vid,
+              variant: v,
+              run_id: "",
+              event: "session_start",
+              metadata: { mode_used: v || abMode, assigned_variant: v },
+            }),
+          }).catch(() => {});
+        })
+        .catch(() => {});
+    } catch {
+      // Fallback: keep DEFAULT_OWNER_ID (demo-only)
+      getJson(`/ab/variant/${DEFAULT_OWNER_ID}`).then((d) => setAbVariant(d.variant || "")).catch(() => {});
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -771,49 +794,73 @@ export default function App() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-      <div className="mx-auto mb-8 max-w-6xl">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm uppercase tracking-[0.2em] text-cyan-400">Multi-Agent BI Dashboard</p>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">Version A</span>
-              <button
-                onClick={() => {
-                  const next = abMode === "A" ? "B" : "A";
-                  setAbMode(next);
-                  setView("query");
-                  setVersionAResults([]);
-                  setVersionADecisions([]);
-                }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${abMode === "B" ? "bg-cyan-600" : "bg-slate-600"}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${abMode === "B" ? "translate-x-6" : "translate-x-1"}`} />
-              </button>
-              <span className="text-xs text-slate-400">Version B</span>
+      <div className="sticky top-0 z-20 -mx-6 mb-8 border-b border-slate-900 bg-slate-950/90 px-6 py-4 backdrop-blur">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-[220px]">
+              <p className="text-sm uppercase tracking-[0.2em] text-cyan-400">Multi-Agent BI Dashboard</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {abMode === "A" ? "Manual (A): retrieval only, you decide actions." : "AI Copilot (B): rewrite + enrichment + debate + judge."}
+              </p>
             </div>
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
-                apiHealth === "online" ? "bg-emerald-500/20 text-emerald-300"
-                : apiHealth === "offline" ? "bg-rose-500/20 text-rose-300"
-                : apiHealth === "degraded" ? "bg-orange-500/20 text-orange-300"
-                : "bg-amber-500/20 text-amber-300"
-              }`}
-            >
-              API {apiHealth}
-            </span>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center rounded-xl border border-slate-800 bg-slate-950/40 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAbMode("A");
+                    setView("query");
+                    setVersionAResults([]);
+                    setVersionADecisions({});
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    abMode === "A" ? "bg-slate-100 text-slate-900" : "text-slate-300 hover:bg-slate-900"
+                  }`}
+                >
+                  Manual (A)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAbMode("B");
+                    setView("query");
+                    setVersionAResults([]);
+                    setVersionADecisions({});
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    abMode === "B" ? "bg-cyan-400 text-slate-950" : "text-slate-300 hover:bg-slate-900"
+                  }`}
+                >
+                  AI Copilot (B)
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-300">
+                <span className="text-slate-500">Assigned:</span>{" "}
+                <span className="font-semibold text-slate-100">{abVariant || "?"}</span>
+                <span className="text-slate-500"> · id:</span>{" "}
+                <span className="font-mono text-slate-200">{(abId || DEFAULT_OWNER_ID).slice(0, 18)}</span>
+              </div>
+
+              {activeResultViews.includes(view) && (
+                <span className="rounded-full border border-slate-700 bg-slate-900/40 px-3 py-1 font-mono text-sm text-cyan-300">
+                  ⏱ {formatElapsed(elapsedSeconds)}
+                </span>
+              )}
+
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
+                  apiHealth === "online" ? "bg-emerald-500/20 text-emerald-300"
+                  : apiHealth === "offline" ? "bg-rose-500/20 text-rose-300"
+                  : apiHealth === "degraded" ? "bg-orange-500/20 text-orange-300"
+                  : "bg-amber-500/20 text-amber-300"
+                }`}
+              >
+                API {apiHealth}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="mt-2 flex items-center gap-4">
-          <p className="text-slate-400">
-            {abMode === "A"
-              ? "Version A — Manual decisions (no AI)"
-              : `Version B — AI assisted · query → pipeline → debate (round ${roundNumber}) → judge → results`}
-          </p>
-          {activeResultViews.includes(view) && (
-            <span className="rounded-full bg-slate-800 px-3 py-1 font-mono text-sm text-cyan-400 border border-slate-700">
-              ⏱ {formatElapsed(elapsedSeconds)}
-            </span>
-          )}
         </div>
       </div>
 

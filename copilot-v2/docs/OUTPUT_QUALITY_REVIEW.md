@@ -649,3 +649,56 @@ Three rounds of runs were performed after all A–G fixes were applied (snapshot
 - Rank 3 correctly `investigate` due to `p_neg=0.29` + `large_delta=true` (C ✓)
 - Actions are sensible for “reduce returns” objective: no unjustified upward repricing on high-return items
 
+---
+
+## RL (Contextual Bandit) for Version B
+
+This repo includes a lightweight **contextual bandit** that tunes internal “knobs” for **Version B (AI Copilot)** to optimize for:
+
+- higher **decision/acceptance** (reduce abandonment)
+- higher **confidence ratings**
+
+### What RL controls (arms)
+
+RL selects one “arm” per run and applies its configuration for that run only:
+
+- `retrieval_min_score` (retrieval strictness)
+- `enable_query_rewrite` (`COPILOT_ENABLE_QUERY_REWRITE`)
+- `enable_pricing_shrinkage` (`COPILOT_ENABLE_PRICING_SHRINKAGE`)
+
+Arms are defined in `copilot-v2/app/rl.py` (`default_arms()`).
+
+### Where RL is wired
+
+- **Run start (Version B)**: `copilot-v2/app/pipeline.py`
+  - selects an arm via UCB
+  - attaches `run_id → arm_id` (so later events can be credited)
+  - records details in `trace.rl`
+  - applies overrides temporarily and restores globals after the run
+- **Event updates**: `copilot-v2/app/api/app.py` `/ab/event`
+  - only updates RL when `metadata.mode_used == "B"` and `run_id` is present
+  - uses `decision_made` / `abandoned` / `confidence_rated` events
+- **Stats endpoint**: `GET /rl/stats`
+
+### Reward function (scalar)
+
+Implemented in `copilot-v2/app/rl.py`:
+
+- `+2.0` if `decision_made`
+- `-2.0` if `abandoned`
+- confidence rating (1–5) adds \(0.6 \times (c - 3)\)
+
+Example: `decision_made + confidence=5` gives \(2.0 + 0.6 \times 2 = 3.2\).
+
+### State persistence (local JSON)
+
+Bandit state is stored under the artifacts/runs folder (see `copilot-v2/app/rl.py` for the exact path). It records:
+
+- per-arm `n` and `mean_reward`
+- a small `run_id → arm_id` map to credit events correctly
+
+### How to inspect learning
+
+- Call `GET /rl/stats` to see per-arm counts and mean reward.
+- In the UI, each Version B run includes `trace.rl` in the pipeline response (arm + applied knobs).
+

@@ -27,6 +27,7 @@ from app.api.schemas import (
     ABSaveRunRequest,
 )
 from app.ab import assign_variant, log_event, save_version_a_run
+from app.rl import default_arms, load_state, save_state, summarize, update_from_event
 from app.pipeline import Pipeline, SNAPSHOT_ID
 
 app = FastAPI(title="Seller Copilot API", version="2.0.0")
@@ -188,7 +189,26 @@ def ab_event(req: ABEventRequest) -> dict:
         event=req.event,
         metadata=req.metadata,
     )
+    # RL updates are applied only for Version B runs.
+    try:
+        mode_used = str((req.metadata or {}).get("mode_used") or "").strip().upper()
+        if mode_used == "B" and req.run_id:
+            arms = default_arms()
+            st = load_state(arms)
+            info = update_from_event(st, run_id=req.run_id, event=req.event, metadata=req.metadata)
+            save_state(st)
+            return {"ok": True, "rl_update": info}
+    except Exception:
+        pass
     return {"ok": True}
+
+
+@app.get("/rl/stats")
+def rl_stats() -> dict:
+    """Return current bandit arm stats (Version B only)."""
+    arms = default_arms()
+    st = load_state(arms)
+    return summarize(st, arms)
 
 
 @app.post("/ab/save_run")
