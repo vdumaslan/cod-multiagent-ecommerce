@@ -1,0 +1,149 @@
+{
+  "summary": {
+    "n_queries": 20,
+    "ok_rate": 1.0,
+    "nonempty_enriched_rate": 1.0
+  },
+  "rows": [
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bed Frames (Amazon Home).",
+      "ok": true,
+      "latency_s": 0.028594655013876036,
+      "n_enriched": 10
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Bed Frames (Amazon Home): avoid aggressive discounting.",
+      "ok": true,
+      "latency_s": 0.02048629501950927,
+      "n_enriched": 10
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bath Rugs (Amazon Home) due to negative customer reviews.",
+      "ok": true,
+      "latency_s": 0.018162870983360335,
+      "n_enriched": 10
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Area Rugs (Amazon Home): promote slow movers.",
+      "ok": true,
+      "latency_s": 0.020177908008918166,
+      "n_enriched": 10
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Bed Pillows (Amazon Home) this week.",
+      "ok": true,
+      "latency_s": 0.01729895599419251,
+      "n_enriched": 10
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Barstools (Amazon Home).",
+      "ok": true,
+      "latency_s": 0.016496148018632084,
+      "n_enriched": 4
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Chairs (Amazon Home): investigate price-missing items first.",
+      "ok": true,
+      "latency_s": 0.01701442399644293,
+      "n_enriched": 10
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bed Blankets (Amazon Home).",
+      "ok": true,
+      "latency_s": 0.018317904992727563,
+      "n_enriched": 10
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Artificial Flowers (Amazon Home).",
+      "ok": true,
+      "latency_s": 0.016756425000494346,
+      "n_enriched": 10
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Bookcases (Amazon Home).",
+      "ok": true,
+      "latency_s": 0.016557458991883323,
+      "n_enriched": 10
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bottles (Tools & Home Improvement).",
+      "ok": true,
+      "latency_s": 0.016466194996610284,
+      "n_enriched": 10
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Attachments (Tools & Home Improvement).",
+      "ok": true,
+      "latency_s": 0.01657982700271532,
+      "n_enriched": 10
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Accessories (Appliances).",
+      "ok": true,
+      "latency_s": 0.016477476980071515,
+      "n_enriched": 8
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Air Purifier Parts & Accessories (Appliances).",
+      "ok": true,
+      "latency_s": 0.017090659006498754,
+      "n_enriched": 10
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Alarm Clocks (All Electronics).",
+      "ok": true,
+      "latency_s": 0.016712125012418255,
+      "n_enriched": 10
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Batteries (All Electronics).",
+      "ok": true,
+      "latency_s": 0.031169755005976185,
+      "n_enriched": 10
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Balloons (Toys & Games).",
+      "ok": true,
+      "latency_s": 0.016558292001718655,
+      "n_enriched": 5
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Banners (Toys & Games).",
+      "ok": true,
+      "latency_s": 0.016642369009787217,
+      "n_enriched": 6
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Office Products: prioritize stable sentiment.",
+      "ok": true,
+      "latency_s": 0.030948583007557318,
+      "n_enriched": 10
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Health & Personal Care products: investigate high-complaint SKUs.",
+      "ok": true,
+      "latency_s": 0.031789738015504554,
+      "n_enriched": 10
+    }
+  ]
+}

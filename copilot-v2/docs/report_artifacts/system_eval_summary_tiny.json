@@ -1,0 +1,56 @@
+{
+  "summary": {
+    "n_queries": 3,
+    "ok_rate": 1.0,
+    "nonempty_ranked_rate": 1.0,
+    "reduce_returns_violation_total": 0,
+    "latency_orchestrate_p50_s": 5.031139637999786,
+    "latency_orchestrate_p95_s": 15.395996868000111,
+    "latency_judge_p50_s": 8.334169438000117,
+    "latency_judge_p95_s": 15.309636225000304
+  },
+  "rows": [
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bed Frames (Amazon Home).",
+      "orchestrate_s": 15.395996868000111,
+      "judge_s": 15.309636225000304,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "hold",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bath Rugs (Amazon Home).",
+      "orchestrate_s": 4.72028897600012,
+      "judge_s": 8.137032825999995,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "hold",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Area Rugs (Amazon Home).",
+      "orchestrate_s": 5.031139637999786,
+      "judge_s": 8.334169438000117,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "promote",
+        "reprice",
+        "reprice"
+      ]
+    }
+  ]
+}

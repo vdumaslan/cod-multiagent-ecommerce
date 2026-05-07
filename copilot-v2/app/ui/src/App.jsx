@@ -37,32 +37,99 @@ async function getJson(path) {
 
 // ── Debate trace → human-readable turns ──────────────────────────────────────
 
+function stripMarkdown(text) {
+  return String(text || "")
+    .replace(/#{1,6}\s*/g, "")          // remove heading markers
+    .replace(/\*\*([^*]+)\*\*/g, "$1")  // bold
+    .replace(/\*([^*]+)\*/g, "$1")      // italic
+    .replace(/__([^_]+)__/g, "$1")      // bold alt
+    .replace(/_([^_]+)_/g, "$1")        // italic alt
+    .replace(/`([^`]+)`/g, "$1")        // inline code
+    .replace(/^\s*[-*]\s+/gm, "• ")     // list markers → bullet
+    .replace(/\n{3,}/g, "\n\n")         // collapse excess blank lines
+    .trim();
+}
+
+function cleanTechnicalText(text, maxLen = 300) {
+  let s = String(text || "");
+
+  // Shorten raw product IDs: B0XXXXXXXX → …XXXXXX
+  s = s.replace(/\b(B0[A-Z0-9]{8,})\b/g, (m) => `…${m.slice(-6)}`);
+  // Remove redundant "product_id=…XXXXXX" fragments
+  s = s.replace(/\(product_id=[^)]+\)/gi, "");
+
+  // Translate common JSON field names → plain English
+  s = s.replace(/p_neg\s*=\s*([\d.]+)/gi, (_, v) => `${Math.round(parseFloat(v) * 100)}% negative sentiment`);
+  s = s.replace(/p_pos\s*=\s*([\d.]+)/gi, (_, v) => `${Math.round(parseFloat(v) * 100)}% positive`);
+  s = s.replace(/n_?reviews\s*=\s*(\d+)/gi, (_, v) => `${v} reviews`);
+  s = s.replace(/total_?returns\s*=\s*(\d+)/gi, (_, v) => `${v} returns`);
+  s = s.replace(/recommended_?price_?change_?pct\s*=\s*([-\d.]+)/gi, (_, v) => {
+    const n = parseFloat(v);
+    if (Math.abs(n) < 0.01) return "price change: 0%";
+    return `price change: ${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+  });
+  s = s.replace(/large_delta\s*=\s*true/gi, "large price delta");
+  s = s.replace(/large_delta\s*=\s*false/gi, "normal price delta");
+  s = s.replace(/near_bound\s*=\s*true/gi, "near policy cap");
+  s = s.replace(/risk_flag\s*=\s*true/gi, "inventory risk flagged");
+  s = s.replace(/action_type\s*(?:to|=)\s*(\w+)/gi, (_, t) => t);
+  s = s.replace(/stock_status\s*=\s*(\w+)/gi, (_, v) => `stock: ${v}`);
+  // Clean up double spaces left by removals
+  s = s.replace(/\s{2,}/g, " ").trim();
+
+  return s.length > maxLen ? s.slice(0, maxLen - 1) + "…" : s;
+}
+
 function formatAdvocate(adv, round) {
   const prefix = round > 1 ? `[Round ${round}] ` : "";
-  const actions = (adv.proposed_actions || [])
+  const parts = [];
+
+  // Lead with key claims — clean and truncate product IDs / raw fields
+  const claims = (adv.key_claims || []).slice(0, 3)
+    .map((c) => `• ${cleanTechnicalText(c, 160)}`)
+    .join("\n");
+  if (claims) parts.push(`${prefix}Advocate's position:\n${claims}`);
+
+  // Proposed actions — human-readable direction
+  const actions = (adv.proposed_actions || []).slice(0, 3)
     .map((a) => {
       const pct = Number(a.recommended_price_change_pct || 0);
-      return `• ${a.product_id}: ${a.action_type} ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+      const type = String(a.action_type || "reprice");
+      let dir = type;
+      if (type === "reprice") dir = Math.abs(pct) < 0.01 ? "hold price" : (pct > 0 ? `increase price +${pct.toFixed(1)}%` : `decrease price ${pct.toFixed(1)}%`);
+      return `• ${dir} (…${String(a.product_id).slice(-6)})`;
     })
     .join("\n");
-  const claims = (adv.key_claims || []).map((c) => `• ${c}`).join("\n");
-  const concerns = (adv.concerns || []).map((c) => `• ${c}`).join("\n");
-  const parts = [];
-  if (actions) parts.push(`${prefix}Proposed Actions:\n${actions}`);
-  if (claims) parts.push(`Key Claims:\n${claims}`);
+  if (actions) parts.push(`Proposed:\n${actions}`);
+
+  // Concerns — clean product IDs
+  const concerns = (adv.concerns || []).slice(0, 2)
+    .map((c) => `• ${cleanTechnicalText(c, 160)}`)
+    .join("\n");
   if (concerns) parts.push(`Concerns:\n${concerns}`);
+
   return parts.join("\n\n") || "No advocate output.";
 }
 
 function formatCritic(crit, round) {
   const prefix = round > 1 ? `[Round ${round}] ` : "";
   const parts = [];
-  const agreements = crit.agreements || [];
-  const disagreements = crit.disagreements || [];
-  const changes = crit.suggested_changes || [];
-  if (agreements.length) parts.push(`${prefix}Agreements:\n${agreements.map((x) => `• ${x}`).join("\n")}`);
-  if (disagreements.length) parts.push(`Disagreements:\n${disagreements.map((x) => `• ${x}`).join("\n")}`);
-  if (changes.length) parts.push(`Suggested Changes:\n${changes.map((x) => `• ${x}`).join("\n")}`);
+
+  // Lead with disagreements (most actionable for sellers)
+  const disagreements = (crit.disagreements || []).slice(0, 3)
+    .map((x) => `• ${cleanTechnicalText(x, 180)}`);
+  if (disagreements.length) {
+    parts.push(`${prefix}Critic challenges:\n${disagreements.join("\n")}`);
+  }
+
+  const changes = (crit.suggested_changes || []).slice(0, 2)
+    .map((x) => `• ${cleanTechnicalText(x, 140)}`);
+  if (changes.length) parts.push(`Suggested changes:\n${changes.join("\n")}`);
+
+  const agreements = (crit.agreements || []).slice(0, 2)
+    .map((x) => `• ${cleanTechnicalText(x, 140)}`);
+  if (agreements.length) parts.push(`Agreed on:\n${agreements.join("\n")}`);
+
   return parts.join("\n\n") || "No critic output.";
 }
 
@@ -74,6 +141,48 @@ function advCritTurns(adv, crit, round) {
   ];
 }
 
+// ── Portfolio summary ─────────────────────────────────────────────────────────
+
+function computePortfolioSummary(enrichedCandidates, objective) {
+  if (!enrichedCandidates || !enrichedCandidates.length) return null;
+  const n = enrichedCandidates.length;
+  const actionCounts = { reprice: 0, hold: 0, investigate: 0, promote: 0, restock: 0 };
+  let highNegSentiment = 0, inventoryRisk = 0, pricingMissing = 0, highReturns = 0;
+  let raiseCount = 0, lowerCount = 0;
+
+  for (const c of enrichedCandidates) {
+    const action = String(c.suggested_action || "reprice").toLowerCase();
+    actionCounts[action] = (actionCounts[action] || 0) + 1;
+
+    if ((c.sentiment?.p_neg || 0) >= 0.30) highNegSentiment++;
+    if (c.inventory?.risk_flag || ["low_stock", "stockout_risk"].includes(c.inventory?.stock_status)) inventoryRisk++;
+    if (c.pricing?.price_missing || c.pricing?.source === "fallback") pricingMissing++;
+    if ((c.signals?.total_returns || 0) >= 3) highReturns++;
+
+    const pct = Number(c.recommended_price_change_pct || 0);
+    if (action === "reprice" && pct > 0.001) raiseCount++;
+    if (action === "reprice" && pct < -0.001) lowerCount++;
+  }
+
+  const obj = String(objective || "revenue").toLowerCase();
+  let strategy = "";
+  if (inventoryRisk / n >= 0.4) {
+    strategy = "Inventory risk is elevated across many candidates. Prioritize HOLD and restock actions; avoid aggressive price increases.";
+  } else if (highNegSentiment / n >= 0.3) {
+    strategy = "Negative sentiment is widespread. Focus on investigation and quality improvements before repricing.";
+  } else if (obj === "clear_inventory") {
+    strategy = "Most candidates are eligible for promotion or price reduction to move surplus inventory.";
+  } else if (obj === "reduce_returns") {
+    strategy = "Elevated returns present. Prioritize investigation on high-return SKUs before price changes.";
+  } else if (raiseCount > lowerCount && raiseCount > 0) {
+    strategy = "Most candidates show upward pricing opportunity with manageable risk. Focus on selective price increases on healthy SKUs.";
+  } else {
+    strategy = "Portfolio is mixed. Review individual product signals before applying blanket pricing changes.";
+  }
+
+  return { n, actionCounts, highNegSentiment, inventoryRisk, pricingMissing, highReturns, strategy };
+}
+
 // ── Plan building ─────────────────────────────────────────────────────────────
 
 
@@ -82,6 +191,54 @@ function extractTitleFromEvidenceSnippet(snippet) {
   if (!s) return "";
   const m = s.match(/(?:^|\n)title:\s*([^\n]+?)(?:\s+brand:|\n|$)/i);
   return (m?.[1] || "").trim();
+}
+
+function extractPriceFromDoc(docText) {
+  // Matches "price_usd: 24.99" or "price: 24.99"
+  const m = String(docText || "").match(/(?:^|\n)price(?:_usd)?:\s*([\d.]+)/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function buildPricingLine(a, pct, finalActionType) {
+  const pr = a?.pricing || {};
+  const doc = a?.evidence?.points?.[0]?.text || "";
+  const currentPrice = extractPriceFromDoc(doc);
+
+  if (pr.price_missing || pr.source === "fallback") {
+    return { text: "Current price unavailable", icon: "💰", dim: true };
+  }
+
+  // Actions that don't involve repricing
+  if (["hold", "restock", "promote", "investigate"].includes(finalActionType)) {
+    if (currentPrice != null) {
+      return { text: `Current price: $${currentPrice.toFixed(2)} — no change recommended`, icon: "💰", dim: true };
+    }
+    return { text: "No price change recommended", icon: "💰", dim: true };
+  }
+
+  // Reprice with zero delta
+  if (Math.abs(pct) < 0.01) {
+    if (currentPrice != null) {
+      return { text: `Current price: $${currentPrice.toFixed(2)} — no change`, icon: "💰", dim: true };
+    }
+    return { text: "No price change suggested", icon: "💰", dim: true };
+  }
+
+  // Reprice with non-zero delta
+  const direction = pct > 0 ? "+" : "";
+  if (currentPrice != null) {
+    const newPrice = currentPrice * (1 + pct / 100);
+    return {
+      text: `Suggested: ${direction}${pct.toFixed(1)}%  ·  $${currentPrice.toFixed(2)} → $${newPrice.toFixed(2)}`,
+      icon: "💰",
+      dim: false,
+    };
+  }
+  return {
+    text: `Suggested price change: ${direction}${pct.toFixed(1)}%`,
+    icon: "💰",
+    dim: false,
+  };
 }
 
 function buildTopDrivers(a) {
@@ -128,6 +285,149 @@ function buildTopDrivers(a) {
   return Array.from(new Set(drivers)).slice(0, 3);
 }
 
+function actionLabel(actionType, pct) {
+  const type = String(actionType || "reprice").trim().toLowerCase();
+  if (type === "reprice") {
+    if (pct > 0.001) return `Increase price by ${pct.toFixed(2)}%`;
+    if (pct < -0.001) return `Decrease price by ${Math.abs(pct).toFixed(2)}%`;
+    return "Hold price (0% change)";
+  }
+  if (type === "investigate") return "Investigate before changing price";
+  if (type === "hold") return "Hold";
+  if (type === "restock") return "Restock";
+  if (type === "promote") return "Promote / increase visibility";
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+const ACTION_BADGE_COLORS = {
+  reprice: "bg-cyan-500/20 text-cyan-200 border-cyan-500/40",
+  investigate: "bg-amber-500/20 text-amber-200 border-amber-500/40",
+  hold: "bg-slate-500/20 text-slate-300 border-slate-500/40",
+  restock: "bg-violet-500/20 text-violet-200 border-violet-500/40",
+  promote: "bg-emerald-500/20 text-emerald-200 border-emerald-500/40",
+};
+
+function computeConfidence(a, pct) {
+  const pr = a?.pricing || {};
+  const sent = a?.sentiment || {};
+  const retrieval = Number(a?.evidence?.retrieval_score ?? 0);
+  const nRev = Number(sent?.n_reviews || 0);
+  const pNeg = Number(sent?.p_neg || 0);
+
+  // Low confidence conditions (any one is enough)
+  if (pr.price_missing || pr.source === "fallback") return { level: "Low", color: "text-rose-300", bg: "bg-rose-500/15 border-rose-500/30" };
+  if (retrieval < 0.80) return { level: "Low", color: "text-rose-300", bg: "bg-rose-500/15 border-rose-500/30" };
+  if (nRev < 5 && nRev > 0) return { level: "Low", color: "text-rose-300", bg: "bg-rose-500/15 border-rose-500/30" };
+  if (nRev === 0) return { level: "Low", color: "text-rose-300", bg: "bg-rose-500/15 border-rose-500/30" };
+
+  // Medium confidence: have data but signals are mixed or uncertain
+  if (pr.near_bound || pr.large_delta) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
+  if (pNeg >= 0.25) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
+  if (retrieval < 0.85) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
+
+  // High: good retrieval, pricing cached and not near bound, reasonable sentiment
+  return { level: "High", color: "text-emerald-300", bg: "bg-emerald-500/15 border-emerald-500/30" };
+}
+
+function buildWhyBullets(a, pct, finalActionType) {
+  // Return exactly 1 primary reason + at most 1 supporting/cautionary note.
+  const pr = a?.pricing || {};
+  const sent = a?.sentiment || {};
+  const inv = a?.inventory || {};
+  const sig = a?.signals || {};
+  const nRev = Number(sent?.n_reviews || 0);
+  const pNeg = Number(sent?.p_neg || 0);
+  const returns = Number(sig?.total_returns || 0);
+  const stock = String(inv?.stock_status || "unknown");
+  const primary = [];
+  const secondary = [];
+
+  if (finalActionType === "restock") {
+    primary.push("Inventory is critically low — restocking prevents lost sales opportunities.");
+    return primary;
+  }
+
+  if (finalActionType === "hold") {
+    if (stock === "low_stock" || inv?.risk_flag) primary.push("Inventory risk detected — holding price avoids adding demand pressure to a supply-constrained SKU.");
+    else primary.push("Multiple risk signals outweigh the pricing opportunity — holding is the safer path.");
+    return primary;
+  }
+
+  if (finalActionType === "investigate") {
+    if (returns >= 3) primary.push(`${returns} returns logged — root cause needs investigation before any price change.`);
+    else if (pNeg >= 0.30) primary.push(`${Math.round(pNeg * 100)}% of ${nRev} reviews are negative — understand quality issues before repricing.`);
+    else if (pr.price_missing) primary.push("Pricing data is unavailable — cannot form a confident recommendation without it.");
+    else if (stock === "low_stock" || inv?.risk_flag) primary.push("Inventory risk present — assess supply situation before committing to a price change.");
+    else primary.push("Mixed or uncertain signals — gather more data before acting.");
+    return primary;
+  }
+
+  if (finalActionType === "promote") {
+    primary.push("Overstocked SKU — a visibility boost moves inventory without sacrificing margin through price cuts.");
+    return primary;
+  }
+
+  // reprice — pricing delta is shown separately in the pricing line, so focus the WHY
+  // on the evidence quality behind the recommendation, not the number itself.
+  if (pr.price_missing) {
+    primary.push("No pricing data available — cannot form a confident recommendation.");
+  } else if (pr.near_bound) {
+    primary.push("Pricing signal exists but is near the policy cap — apply in stages.");
+  } else if (pr.large_delta) {
+    primary.push("Pricing model signals a large adjustment — verify before applying at full scale.");
+  } else if (Math.abs(pct) < 0.01) {
+    primary.push("Pricing model finds no strong signal — current price appears appropriate.");
+  } else {
+    primary.push("Pricing model finds a clear opportunity — signals support this adjustment.");
+  }
+
+  // Secondary: most important cautionary note
+  if (pNeg >= 0.25 && pct > 0) {
+    secondary.push(`Customer feedback is ${pNeg >= 0.40 ? "strongly" : "moderately"} negative (${Math.round(pNeg * 100)}%) — monitor closely after any increase.`);
+  } else if (pr.near_bound) {
+    secondary.push("Delta is near the policy cap — apply conservatively or in stages.");
+  } else if (pr.large_delta) {
+    secondary.push("Suggested delta is large — verify before applying at full scale.");
+  } else if (returns >= 3) {
+    secondary.push(`${returns} returns logged — watch return rate after repricing.`);
+  } else if (nRev === 0) {
+    secondary.push("No review data — sentiment confidence is very low.");
+  } else if (nRev < 10) {
+    secondary.push(`Only ${nRev} reviews — sentiment signal may not be representative.`);
+  }
+
+  return [...primary, ...secondary].slice(0, 2);
+}
+
+function buildOverrideNote(suggestedAction, finalActionType, a) {
+  const pr = a?.pricing || {};
+  const sent = a?.sentiment || {};
+  const inv = a?.inventory || {};
+  const sig = a?.signals || {};
+  const pNeg = Number(sent?.p_neg || 0);
+  const returns = Number(sig?.total_returns || 0);
+  const stock = String(inv?.stock_status || "unknown");
+
+  // Specific, seller-readable explanations for common transitions
+  if (suggestedAction === "investigate" && finalActionType === "reprice") {
+    if (pNeg >= 0.25) return "Pricing signal was strong enough to override the investigation flag — but negative feedback remains a concern.";
+    return "Pricing signal overrode the initial caution flag — review this recommendation carefully.";
+  }
+  if (suggestedAction === "hold" && finalActionType === "reprice") {
+    return "Pricing opportunity identified despite inventory caution — proceed with care.";
+  }
+  if (suggestedAction === "reprice" && finalActionType === "investigate") {
+    if (returns >= 3) return "Recommendation changed to investigation — elevated returns suggest a quality issue to resolve first.";
+    if (pNeg >= 0.30) return "Recommendation changed to investigation — high negative feedback outweighs the pricing opportunity.";
+    return "Recommendation changed to investigation — risk signals outweighed the pricing signal.";
+  }
+  if (suggestedAction === "reprice" && finalActionType === "hold") {
+    return "Recommendation reduced to hold — inventory or sentiment risk is too high to act on the pricing signal now.";
+  }
+  // Generic fallback
+  return "Recommendation adjusted based on combined signal analysis — review before acting.";
+}
+
 function buildPlansFromRanked(ranked) {
   if (!ranked || !ranked.length) return [];
   return ranked.map((a) => {
@@ -146,28 +446,49 @@ function buildPlansFromRanked(ranked) {
     const evidenceSnippet = a.evidence?.points?.[0]?.text || "";
     const productTitle = extractTitleFromEvidenceSnippet(evidenceSnippet);
     const suggestedAction = String(a.suggested_action || a.signals?.suggested_action || "").trim();
-    const finalActionType = String(a.action_type || "reprice").trim();
-    const topDrivers = buildTopDrivers(a);
+    const finalActionType = String(a.action_type || "reprice").trim().toLowerCase();
+    const actionBadgeColor = ACTION_BADGE_COLORS[finalActionType] || "bg-slate-500/20 text-slate-300 border-slate-500/40";
+    const confidence = computeConfidence(a, pct);
+    const whyBullets = buildWhyBullets(a, pct, finalActionType);
+
+    // Caution notes: when the final action still carries notable contradictions
+    const cautionNotes = [];
+    if (finalActionType === "reprice" && pct > 0.001 && pNeg >= 0.30) {
+      cautionNotes.push(`Customer feedback is ${pNeg >= 0.40 ? "strongly" : "notably"} negative (${Math.round(pNeg * 100)}%). Monitor closely if you increase price.`);
+    }
+    if (finalActionType === "reprice" && pct > 0.001 && (inv.risk_flag || ["low_stock", "stockout_risk"].includes(inv.stock_status))) {
+      cautionNotes.push("Inventory is under pressure — a price increase may further reduce sell-through.");
+    }
+    if (finalActionType === "reprice" && pct < -0.001 && inv.stock_status === "stockout_risk") {
+      cautionNotes.push("Reducing price may accelerate stockout — consider restocking before discounting.");
+    }
+
+    // Override note: context-aware seller language, not internal state machine language
+    const overrideNote = (suggestedAction && finalActionType && suggestedAction !== finalActionType)
+      ? buildOverrideNote(suggestedAction, finalActionType, a)
+      : null;
+
+    const rawTitle = productTitle || a.product_id;
+    const shortTitle = rawTitle.length > 72 ? rawTitle.slice(0, 70).trimEnd() + "…" : rawTitle;
+
     return {
       id: String(a.product_id),
-      title: `${finalActionType} — ${productTitle || a.product_id}`,
+      title: shortTitle,
+      fullTitle: rawTitle,
+      productId: String(a.product_id),
+      actionLabel: actionLabel(finalActionType, pct),
+      actionBadgeColor,
+      confidence,
+      pricingLine: buildPricingLine(a, pct, finalActionType),
+      whyBullets,
+      cautionNotes,
+      overrideNote,
       finalActionType,
       suggestedAction,
       retrievalSimilarity,
       retrievalScore: retrieval,
       evidenceSnippet: evidenceSnippet ? String(evidenceSnippet).slice(0, 240) : "",
-      topDrivers,
-      actions: [
-        `SKU: ${a.product_id}`,
-        `Pricing: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% (source=${a?.pricing?.source || "unknown"})`,
-        (a?.pricing?.price_missing || a?.pricing?.source === "fallback") ? "Price missing/unknown: treat pricing rationale as low-confidence" : null,
-        sent.n_reviews ? `Sentiment (n=${sent.n_reviews}): +${Number(sent.p_pos || 0).toFixed(2)} ~${Number(sent.p_neu || 0).toFixed(2)} -${Number(sent.p_neg || 0).toFixed(2)}` : "Sentiment: (n/a)",
-        `Inventory: ${inv.stock_status || "unknown"}`,
-        ...(a.llm_rationale_bullets || []).map((x) => `Rationale: ${x}`),
-        ...(a.llm_risk_bullets || []).map((x) => `Risk: ${x}`),
-      ].filter(Boolean).slice(0, 8),
       riskLevel,
-      confidence: retrievalSimilarity,
     };
   });
 }
@@ -728,11 +1049,28 @@ export default function App() {
         latest_critic: latestCritic || {},
       });
       setLlmRunningLabel("");
-      const judgeContent = data.judge_raw?.judge?.content;
+      // Build judge summary from structured ranked_actions — far cleaner than raw LLM text
+      const judgeMessage = (() => {
+        const actions = (data.ranked_actions || []).slice(0, 3);
+        if (!actions.length) return "Judge synthesis complete. No ranked actions returned.";
+        const lines = actions.map((a, i) => {
+          const pct = Number(a.recommended_price_change_pct || 0);
+          const type = String(a.action_type || "reprice").toLowerCase();
+          const pid = `…${String(a.product_id).slice(-6)}`;
+          let decision = type;
+          if (type === "reprice") decision = Math.abs(pct) < 0.01 ? "hold price" : (pct > 0 ? `increase price +${pct.toFixed(2)}%` : `decrease price ${Math.abs(pct).toFixed(2)}%`);
+          if (type === "investigate") decision = "investigate before repricing";
+          if (type === "hold") decision = "hold";
+          if (type === "restock") decision = "restock";
+          if (type === "promote") decision = "promote";
+          return `${i + 1}. ${decision} (${pid})`;
+        });
+        return `Judge's final decisions:\n${lines.join("\n")}`;
+      })();
       const judgeTurn = {
         id: `judge-${Date.now()}`,
-        actor: "Judge LLM",
-        message: judgeContent ? judgeContent.slice(0, 600) : "Judge synthesis complete. Final ranked actions selected.",
+        actor: "Judge",
+        message: judgeMessage,
       };
       playDebateTurns([judgeTurn], () => {
         const built = buildPlansFromRanked(data.ranked_actions);
@@ -982,6 +1320,7 @@ export default function App() {
           plans={plans}
           resultsMessage={resultsMessage}
           runContext={runContext}
+          portfolioSummary={computePortfolioSummary(pipelineResult?.enriched_candidates, objective)}
           selectedPlanId={selectedPlanId}
           onChoosePlan={handleChoosePlan}
           onRejectAll={handleRejectAll}

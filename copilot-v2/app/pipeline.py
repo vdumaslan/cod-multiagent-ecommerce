@@ -655,6 +655,54 @@ class Pipeline:
                     dedup.append(b)
             return dedup[:4]
 
+        def _deterministic_risk(base: dict[str, Any]) -> list[str]:
+            """Generate risk bullets grounded in actual enrichment signals, never from LLM."""
+            pr = base.get("pricing") or {}
+            sent = base.get("sentiment") or {}
+            inv = base.get("inventory") or {}
+            sig = base.get("signals") or {}
+
+            risks: list[str] = []
+            stock = str(inv.get("stock_status") or "unknown")
+            risk_flag = bool(inv.get("risk_flag", False))
+            if stock == "stockout_risk":
+                risks.append("Inventory stockout risk: demand-increasing actions may worsen supply gap.")
+            elif stock == "low_stock" or risk_flag:
+                risks.append(f"Low stock / inventory risk: avoid actions that increase demand{' (risk_flag=true)' if risk_flag else ''}.")
+            elif stock == "overstocked":
+                risks.append("Overstocked: margin may compress if price is increased without clearing surplus.")
+
+            p_neg = float(sent.get("p_neg") or 0.0)
+            n_reviews = float(sent.get("n_reviews") or 0.0)
+            if n_reviews == 0:
+                risks.append("No review coverage: sentiment confidence is low; treat recommendations with caution.")
+            elif p_neg >= 0.30:
+                risks.append(f"High negative sentiment ({p_neg:.0%} of {int(n_reviews)} reviews): price increases may accelerate churn.")
+            elif p_neg >= 0.20:
+                risks.append(f"Moderate negative feedback ({p_neg:.0%}): monitor reviews before aggressive repricing.")
+
+            returns = float(sig.get("total_returns") or 0.0)
+            if returns >= 5:
+                risks.append(f"Elevated returns ({int(returns)} units): investigate root cause before changing price.")
+            elif returns >= 3:
+                risks.append(f"Notable returns ({int(returns)} units): quality risk present.")
+
+            if pr.get("price_missing") or str(pr.get("source") or "") == "fallback":
+                risks.append("Pricing signal unavailable: recommended price change is low-confidence.")
+            elif pr.get("near_bound"):
+                risks.append("Suggested delta is near the policy bound: apply conservatively.")
+            elif pr.get("large_delta"):
+                risks.append("Large pricing delta suggested: verify before applying at scale.")
+
+            # De-dup and cap.
+            dedup: list[str] = []
+            seen: set[str] = set()
+            for b in risks:
+                if b not in seen:
+                    seen.add(b)
+                    dedup.append(b)
+            return dedup[:3]
+
         def _looks_generic(bullets: list[str]) -> bool:
             if not bullets:
                 return True
@@ -675,16 +723,47 @@ class Pipeline:
             llm_rationale = list(ja.get("rationale_bullets") or [])
             llm_risk = list(ja.get("risk_bullets") or [])
             det = _deterministic_rationale(base)
+            det_risk = _deterministic_risk(base)
             # Always use deterministic bullets to guarantee factual accuracy.
             # The LLM's action_type and reasoning are preserved; only the cited field values
             # are grounded from actual input data (same principle as RAG — ground citations,
-            # not reasoning). The LLM rationale is kept as a fallback label in the trace only.
+            # not reasoning). LLM outputs are kept as trace-only labels.
             llm_rationale = det
+            llm_risk = det_risk
+
+            action_type = str(ja.get("action_type") or "reprice")
+            price_change = float(ja.get("recommended_price_change_pct") or 0.0)
+
+            # Hard guardrail 1: if pricing data is unavailable, the judge cannot
+            # legitimately recommend a reprice — force investigate + zero delta.
+            pricing_info = base.get("pricing") or {}
+            if pricing_info.get("price_missing") or str(pricing_info.get("source") or "") == "fallback":
+                if action_type == "reprice":
+                    action_type = "investigate"
+                    price_change = 0.0
+
+            # Hard guardrail 2: mirror the playbook's sentiment/returns threshold.
+            # If the playbook would have said "investigate" (p_neg >= 0.30 with >= 10 reviews,
+            # or total_returns >= 3), the judge cannot override this with a price increase.
+            # A price increase under strong negative feedback is not a defensible recommendation.
+            sentiment_info = base.get("sentiment") or {}
+            sig_info = base.get("signals") or {}
+            _p_neg = float(sentiment_info.get("p_neg") or 0.0)
+            _n_rev = float(sentiment_info.get("n_reviews") or 0.0)
+            _returns = float(sig_info.get("total_returns") or 0.0)
+            if action_type == "reprice" and price_change > 0.0:
+                if _n_rev >= 10 and _p_neg >= 0.30:
+                    action_type = "investigate"
+                    price_change = 0.0
+                elif _returns >= 3:
+                    action_type = "investigate"
+                    price_change = 0.0
+
             out.append({
                 **base,
                 "product_id": pid,
-                "action_type": str(ja.get("action_type") or "reprice"),
-                "recommended_price_change_pct": float(ja.get("recommended_price_change_pct") or 0.0),
+                "action_type": action_type,
+                "recommended_price_change_pct": price_change,
                 "horizon_days": horizon_days,
                 "rank": i + 1,
                 "llm_rationale_bullets": llm_rationale,

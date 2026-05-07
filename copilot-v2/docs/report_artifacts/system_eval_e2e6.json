@@ -1,0 +1,100 @@
+{
+  "summary": {
+    "n_queries": 6,
+    "ok_rate": 1.0,
+    "nonempty_ranked_rate": 0.8333333333333334,
+    "reduce_returns_violation_total": 0,
+    "orchestrate_p50_s": 4.030485448000036,
+    "orchestrate_p95_s": 5.261520563999511,
+    "judge_p50_s": 7.433159569000054,
+    "judge_p95_s": 8.666173345999596
+  },
+  "rows": [
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bed Frames (Amazon Home).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 5.198875748999853,
+      "lat_judge_s": 7.546185475000129,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "reprice",
+        "hold",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bath Rugs (Amazon Home) due to negative customer reviews.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 4.370585018999918,
+      "lat_judge_s": 7.173930567999378,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "reprice",
+        "investigate",
+        "hold"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Area Rugs (Amazon Home): promote slow movers.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 5.261520563999511,
+      "lat_judge_s": 8.666173345999596,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "promote",
+        "reprice",
+        "promote"
+      ]
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bottles (Tools & Home Improvement).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 3.9556864300002417,
+      "lat_judge_s": 7.972110513000189,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Alarm Clocks (All Electronics).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 4.030485448000036,
+      "lat_judge_s": 7.433159569000054,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "hold",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Office Products: prioritize stable sentiment.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 2.751987179000025,
+      "lat_judge_s": 3.722345666000365,
+      "n_ranked": 0,
+      "reduce_returns_violations": 0,
+      "action_types": []
+    }
+  ]
+}

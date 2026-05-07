@@ -1,0 +1,280 @@
+{
+  "summary": {
+    "n_queries": 20,
+    "ok_rate": 1.0,
+    "nonempty_ranked_rate": 0.85,
+    "reduce_returns_violation_total": 0,
+    "latency_orchestrate_p50_s": 4.8839727720001065,
+    "latency_orchestrate_p95_s": 11.593839968999873,
+    "latency_judge_p50_s": 8.44355530599978,
+    "latency_judge_p95_s": 17.83412217599971
+  },
+  "rows": [
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bed Frames (Amazon Home).",
+      "orchestrate_s": 14.321286378999957,
+      "judge_s": 9.017877021999993,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "hold",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bath Rugs (Amazon Home).",
+      "orchestrate_s": 4.759143346000201,
+      "judge_s": 8.120945564000067,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "hold",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Area Rugs (Amazon Home).",
+      "orchestrate_s": 5.0245910989997356,
+      "judge_s": 8.31322632499996,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "promote",
+        "reprice",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Bed Pillows (Amazon Home).",
+      "orchestrate_s": 4.552429658000165,
+      "judge_s": 7.839863854999749,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Barstools (Amazon Home).",
+      "orchestrate_s": 4.8839727720001065,
+      "judge_s": 8.44355530599978,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "hold",
+        "reprice",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Chairs (Amazon Home).",
+      "orchestrate_s": 4.6847350050002206,
+      "judge_s": 8.949618772000122,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "reprice",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bed Pillows (Amazon Home) due to quality complaints.",
+      "orchestrate_s": 4.274757991000115,
+      "judge_s": 7.434823185999903,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "reprice",
+        "hold"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Bed Blankets (Amazon Home).",
+      "orchestrate_s": 4.882692432000113,
+      "judge_s": 8.20853299800001,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "promote",
+        "hold",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Bed Pillows (Amazon Home) over the next week.",
+      "orchestrate_s": 4.447308621000047,
+      "judge_s": 7.318156884000018,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "hold"
+      ]
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Bed Frames (Amazon Home): avoid aggressive discounting.",
+      "orchestrate_s": 6.506768520999685,
+      "judge_s": 7.452714140999888,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "reprice",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bottles (Tools & Home Improvement).",
+      "orchestrate_s": 5.754146994999701,
+      "judge_s": 7.779271005999817,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "reprice",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Alarm Clocks (All Electronics).",
+      "orchestrate_s": 3.996159927000008,
+      "judge_s": 7.456463925000207,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "hold",
+        "hold",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Air Purifier Parts & Accessories (Appliances).",
+      "orchestrate_s": 4.332212138000159,
+      "judge_s": 10.003751584999918,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "hold",
+        "reprice",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Batteries (All Electronics).",
+      "orchestrate_s": 3.8270601730000635,
+      "judge_s": 10.946164769999996,
+      "ok": true,
+      "n_ranked": 0,
+      "violations_reduce_returns": 0,
+      "action_types": []
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Batteries (All Electronics): investigate price-missing items.",
+      "orchestrate_s": 6.062203726999996,
+      "judge_s": 11.131725263000135,
+      "ok": true,
+      "n_ranked": 0,
+      "violations_reduce_returns": 0,
+      "action_types": []
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Balloons (Toys & Games).",
+      "orchestrate_s": 7.7714876720001485,
+      "judge_s": 17.83412217599971,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Air Fryers (Amazon Home).",
+      "orchestrate_s": 11.593839968999873,
+      "judge_s": 14.960163695999654,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "investigate",
+        "hold",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Artificial Flowers (Amazon Home).",
+      "orchestrate_s": 9.676832978999755,
+      "judge_s": 14.004152533999786,
+      "ok": true,
+      "n_ranked": 3,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "reprice",
+        "investigate",
+        "hold"
+      ]
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Accessories (Appliances).",
+      "orchestrate_s": 8.634623393999846,
+      "judge_s": 4.842073830000118,
+      "ok": true,
+      "n_ranked": 1,
+      "violations_reduce_returns": 0,
+      "action_types": [
+        "investigate"
+      ]
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Office Products: focus on stable sentiment.",
+      "orchestrate_s": 4.830236463999881,
+      "judge_s": 22.149418013000286,
+      "ok": true,
+      "n_ranked": 0,
+      "violations_reduce_returns": 0,
+      "action_types": []
+    }
+  ]
+}

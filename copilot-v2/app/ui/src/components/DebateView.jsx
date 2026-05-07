@@ -19,6 +19,11 @@ const actorStyles = {
     bubble: "border-emerald-500/30 bg-emerald-500/10",
     label: "text-emerald-300",
   },
+  "Judge": {
+    container: "justify-start",
+    bubble: "border-emerald-500/30 bg-emerald-500/10",
+    label: "text-emerald-300",
+  },
   "System": {
     container: "justify-center",
     bubble: "border-red-500/30 bg-red-500/10",
@@ -78,7 +83,7 @@ export default function DebateView({
           <div key={entry.id} className={`flex ${actorStyles[entry.actor]?.container ?? "justify-start"}`}>
             <div className={`max-w-[85%] rounded-2xl border p-4 ${actorStyles[entry.actor]?.bubble ?? "border-slate-700 bg-slate-900"}`}>
               <p className={`text-sm font-semibold ${actorStyles[entry.actor]?.label ?? "text-cyan-300"}`}>{entry.actor}</p>
-              <p className="mt-1 text-slate-200">{entry.message}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">{entry.message}</p>
             </div>
           </div>
         ))}

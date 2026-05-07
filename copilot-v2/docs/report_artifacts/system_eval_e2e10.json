@@ -1,0 +1,156 @@
+{
+  "summary": {
+    "n_queries": 10,
+    "ok_rate": 1.0,
+    "nonempty_ranked_rate": 0.8,
+    "reduce_returns_violation_total": 0,
+    "orchestrate_p50_s": 4.0093742629997,
+    "orchestrate_p95_s": 6.750228484999752,
+    "judge_p50_s": 7.435913323999557,
+    "judge_p95_s": 9.033068836000893
+  },
+  "rows": [
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bed Frames (Amazon Home).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 6.750228484999752,
+      "lat_judge_s": 9.033068836000893,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "reprice",
+        "hold",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Bath Rugs (Amazon Home) due to negative customer reviews.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 4.365429098999812,
+      "lat_judge_s": 7.173226554999928,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "reprice",
+        "investigate",
+        "hold"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Area Rugs (Amazon Home): promote slow movers.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 5.2574266210012865,
+      "lat_judge_s": 8.66386602899911,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "promote",
+        "reprice",
+        "promote"
+      ]
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Bed Pillows (Amazon Home) this week.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 4.253766428000745,
+      "lat_judge_s": 8.073164482999346,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Bottles (Tools & Home Improvement).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 3.9787605140008964,
+      "lat_judge_s": 7.993525240000963,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "reprice"
+      ]
+    },
+    {
+      "objective": "clear_inventory",
+      "goal": "Clear inventory for Air Purifier Parts & Accessories (Appliances).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 4.3200753850014735,
+      "lat_judge_s": 7.443662187000882,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "reprice",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "reduce_returns",
+      "goal": "Reduce returns for Alarm Clocks (All Electronics).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 3.987490366998827,
+      "lat_judge_s": 7.435913323999557,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "hold",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "avoid_stockouts",
+      "goal": "Avoid stockouts for Batteries (All Electronics).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 2.6013554229994043,
+      "lat_judge_s": 2.8038050989998737,
+      "n_ranked": 0,
+      "reduce_returns_violations": 0,
+      "action_types": []
+    },
+    {
+      "objective": "revenue",
+      "goal": "Grow revenue for Balloons (Toys & Games).",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 4.0093742629997,
+      "lat_judge_s": 7.359788256999309,
+      "n_ranked": 3,
+      "reduce_returns_violations": 0,
+      "action_types": [
+        "hold",
+        "investigate",
+        "investigate"
+      ]
+    },
+    {
+      "objective": "profit",
+      "goal": "Grow profit for Office Products: prioritize stable sentiment.",
+      "orchestrate_ok": true,
+      "judge_ok": true,
+      "lat_orchestrate_s": 2.7528461279998737,
+      "lat_judge_s": 3.7462509119995957,
+      "n_ranked": 0,
+      "reduce_returns_violations": 0,
+      "action_types": []
+    }
+  ]
+}
