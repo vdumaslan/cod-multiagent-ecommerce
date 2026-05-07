@@ -49,10 +49,12 @@ def get_pipeline() -> Pipeline:
         artifacts_root_env = os.environ.get("COPILOT_ARTIFACTS_ROOT", "")
         artifacts_root = Path(artifacts_root_env) if artifacts_root_env else None
         ollama_url = os.environ.get("COPILOT_OLLAMA_URL", "http://localhost:11434")
+        data_backend = os.environ.get("COPILOT_DATA_BACKEND", "local")
         _pipeline = Pipeline(
             snapshot_id=snapshot_id,
             artifacts_root=artifacts_root,
             ollama_base_url=ollama_url,
+            data_backend=data_backend,
         )
     return _pipeline
 

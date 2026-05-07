@@ -1,0 +1,105 @@
+name: Copilot V2 BigQuery Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "validate_bigquery works on GitHub; upload requires artifacts on runner"
+        required: true
+        default: "validate_bigquery"
+        type: choice
+        options:
+          - validate_bigquery
+          - upload
+      snapshot_id:
+        description: "Artifact snapshot id"
+        required: true
+        default: "38710839ca6e1009"
+      table_set:
+        description: "Upload scope: caches, serving, or full"
+        required: true
+        default: "serving"
+        type: choice
+        options:
+          - caches
+          - serving
+          - full
+      dry_run:
+        description: "Upload operation only: plan without writing"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  upload-and-validate:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: copilot-v2/src
+      COPILOT_SNAPSHOT_ID: ${{ inputs.snapshot_id }}
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET || 'copilot_v2' }}
+      BIGQUERY_LOCATION: ${{ secrets.BIGQUERY_LOCATION || 'US' }}
+      GCP_SA_KEY_JSON: ${{ secrets.GCP_SA_KEY_JSON }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r copilot-v2/requirements.txt
+
+      - name: Configure Google credentials
+        if: ${{ inputs.operation == 'validate_bigquery' || inputs.dry_run == 'false' }}
+        run: |
+          if [ -z "${GCP_PROJECT_ID}" ]; then
+            echo "Missing secret GCP_PROJECT_ID" >&2
+            exit 1
+          fi
+          if [ -z "${GCP_SA_KEY_JSON}" ]; then
+            echo "Missing secret GCP_SA_KEY_JSON" >&2
+            exit 1
+          fi
+          echo "${GCP_SA_KEY_JSON}" > "${RUNNER_TEMP}/gcp-key.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/gcp-key.json" >> "${GITHUB_ENV}"
+
+      - name: Validate BigQuery snapshot
+        if: ${{ inputs.operation == 'validate_bigquery' }}
+        run: |
+          python -m copilot_v2.scripts.cloud.validate_bigquery_snapshot \
+            --artifacts-root copilot-v2/artifacts \
+            --snapshot-id "${COPILOT_SNAPSHOT_ID}" \
+            --table-set "${{ inputs.table_set }}" \
+            --write-results
+
+      - name: Check local artifacts exist for upload
+        if: ${{ inputs.operation == 'upload' }}
+        run: |
+          if [ ! -d "copilot-v2/artifacts" ]; then
+            echo "copilot-v2/artifacts is not present on this runner." >&2
+            echo "Use validate_bigquery on GitHub, or run upload locally/self-hosted where artifacts exist." >&2
+            exit 1
+          fi
+
+      - name: Upload snapshot to BigQuery
+        if: ${{ inputs.operation == 'upload' }}
+        run: |
+          args=(
+            --artifacts-root copilot-v2/artifacts
+            --snapshot-id "${COPILOT_SNAPSHOT_ID}"
+            --table-set "${{ inputs.table_set }}"
+          )
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          else
+            args+=(--no-dry-run --write-validation-results)
+          fi
+          python -m copilot_v2.scripts.cloud.upload_bigquery_snapshot "${args[@]}"

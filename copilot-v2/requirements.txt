@@ -10,6 +10,8 @@ pyarrow
 scikit-learn
 faiss-cpu
 sentence-transformers
+google-cloud-bigquery
+db-dtypes
 
 # Model/training stack used by scripts
 torch

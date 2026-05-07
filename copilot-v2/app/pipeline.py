@@ -34,8 +34,10 @@ class Pipeline:
         snapshot_id: str = SNAPSHOT_ID,
         artifacts_root: Path | None = None,
         ollama_base_url: str = "http://localhost:11434",
+        data_backend: str | None = None,
     ) -> None:
         self.snapshot_id = snapshot_id
+        self.data_backend = (data_backend or os.environ.get("COPILOT_DATA_BACKEND") or "local").strip().lower()
         root = artifacts_root or Path(__file__).resolve().parent.parent / "artifacts"
 
         self.retrieval = RetrievalAgent(snapshot_id=snapshot_id, artifacts_root=root)
@@ -46,9 +48,9 @@ class Pipeline:
             self.retrieval.config.min_score = 0.80
         self.retrieval.load_index()
 
-        self.pricing = PricingAgent(snapshot_id=snapshot_id, artifacts_root=root)
-        self.sentiment = SentimentAgent(snapshot_id=snapshot_id, artifacts_root=root)
-        self.inventory = InventoryAgent(snapshot_id=snapshot_id, artifacts_root=root)
+        self.pricing = PricingAgent(snapshot_id=snapshot_id, artifacts_root=root, data_backend=self.data_backend)
+        self.sentiment = SentimentAgent(snapshot_id=snapshot_id, artifacts_root=root, data_backend=self.data_backend)
+        self.inventory = InventoryAgent(snapshot_id=snapshot_id, artifacts_root=root, data_backend=self.data_backend)
 
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self._index_meta = str(
@@ -830,9 +832,9 @@ class Pipeline:
                 "owner_id": owner_id,
                 "retrieval_index_meta": self._index_meta,
                 "query_rewrite": {k: rewrite.get(k) for k in ("used", "retrieval_query", "clarifying_question", "notes")},
-                "pricing": {"wired": enable_pricing, "source": "cache"},
-                "sentiment": {"wired": enable_sentiment, "source": "cache"},
-                "inventory": {"wired": True, "mode": "rules_v1"},
+                "pricing": {"wired": enable_pricing, "source": self.pricing.cache_source},
+                "sentiment": {"wired": enable_sentiment, "source": self.sentiment.cache_source},
+                "inventory": {"wired": True, "mode": "rules_v1", "source": self.inventory.cache_source},
                 "demo_allowlist_size": 0,
                 "rl": rl_trace,
             }
@@ -1022,9 +1024,9 @@ class Pipeline:
             "owner_id": owner_id,
             "retrieval_index_meta": self._index_meta,
             "query_rewrite": {k: rewrite.get(k) for k in ("used", "retrieval_query", "clarifying_question", "notes")},
-            "pricing": {"wired": enable_pricing, "source": "cache"},
-            "sentiment": {"wired": enable_sentiment, "source": "cache"},
-            "inventory": {"wired": True, "mode": "rules_v1"},
+            "pricing": {"wired": enable_pricing, "source": self.pricing.cache_source},
+            "sentiment": {"wired": enable_sentiment, "source": self.sentiment.cache_source},
+            "inventory": {"wired": True, "mode": "rules_v1", "source": self.inventory.cache_source},
             "demo_allowlist_size": 0,
             "rl": rl_trace,
         }
