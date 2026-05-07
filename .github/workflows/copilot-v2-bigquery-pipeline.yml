@@ -1,6 +1,8 @@
 name: Copilot V2 BigQuery Pipeline
 
 on:
+  schedule:
+    - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
       operation:
@@ -38,7 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: copilot-v2/src
-      COPILOT_SNAPSHOT_ID: ${{ inputs.snapshot_id }}
+      PIPELINE_OPERATION: ${{ github.event_name == 'schedule' && 'validate_bigquery' || inputs.operation }}
+      PIPELINE_TABLE_SET: ${{ github.event_name == 'schedule' && 'serving' || inputs.table_set }}
+      PIPELINE_DRY_RUN: ${{ github.event_name == 'schedule' && 'true' || inputs.dry_run }}
+      COPILOT_SNAPSHOT_ID: ${{ github.event_name == 'schedule' && '38710839ca6e1009' || inputs.snapshot_id }}
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET || 'copilot_v2' }}
       BIGQUERY_LOCATION: ${{ secrets.BIGQUERY_LOCATION || 'US' }}
@@ -58,7 +63,7 @@ jobs:
           python -m pip install -r copilot-v2/requirements.txt
 
       - name: Configure Google credentials
-        if: ${{ inputs.operation == 'validate_bigquery' || inputs.dry_run == 'false' }}
+        if: ${{ env.PIPELINE_OPERATION == 'validate_bigquery' || env.PIPELINE_DRY_RUN == 'false' }}
         run: |
           if [ -z "${GCP_PROJECT_ID}" ]; then
             echo "Missing secret GCP_PROJECT_ID" >&2
@@ -72,16 +77,16 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/gcp-key.json" >> "${GITHUB_ENV}"
 
       - name: Validate BigQuery snapshot
-        if: ${{ inputs.operation == 'validate_bigquery' }}
+        if: ${{ env.PIPELINE_OPERATION == 'validate_bigquery' }}
         run: |
           python -m copilot_v2.scripts.cloud.validate_bigquery_snapshot \
             --artifacts-root copilot-v2/artifacts \
             --snapshot-id "${COPILOT_SNAPSHOT_ID}" \
-            --table-set "${{ inputs.table_set }}" \
+            --table-set "${PIPELINE_TABLE_SET}" \
             --write-results
 
       - name: Check local artifacts exist for upload
-        if: ${{ inputs.operation == 'upload' }}
+        if: ${{ env.PIPELINE_OPERATION == 'upload' }}
         run: |
           if [ ! -d "copilot-v2/artifacts" ]; then
             echo "copilot-v2/artifacts is not present on this runner." >&2
@@ -90,14 +95,14 @@ jobs:
           fi
 
       - name: Upload snapshot to BigQuery
-        if: ${{ inputs.operation == 'upload' }}
+        if: ${{ env.PIPELINE_OPERATION == 'upload' }}
         run: |
           args=(
             --artifacts-root copilot-v2/artifacts
             --snapshot-id "${COPILOT_SNAPSHOT_ID}"
-            --table-set "${{ inputs.table_set }}"
+            --table-set "${PIPELINE_TABLE_SET}"
           )
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "${PIPELINE_DRY_RUN}" = "true" ]; then
             args+=(--dry-run)
           else
             args+=(--no-dry-run --write-validation-results)
