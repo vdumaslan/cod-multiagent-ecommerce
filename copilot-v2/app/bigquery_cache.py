@@ -112,6 +112,7 @@ def load_inventory_cache(snapshot_id: str) -> dict[str, dict[str, object]]:
             "safety_stock_units",
             "available_to_sell",
             "mean_daily_revenue",
+            "total_units_sold",
             "total_returns",
         ],
     )
@@ -123,6 +124,7 @@ def load_inventory_cache(snapshot_id: str) -> dict[str, dict[str, object]]:
             "safety_stock_units": float(r.get("safety_stock_units") or 0.0),
             "available_to_sell": float(r.get("available_to_sell") or 0.0),
             "mean_daily_revenue": float(r.get("mean_daily_revenue") or 0.0),
+            "total_units_sold": float(r.get("total_units_sold") or 0.0),
             "total_returns": float(r.get("total_returns") or 0.0),
         }
         for r in rows

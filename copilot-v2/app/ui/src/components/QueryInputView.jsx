@@ -207,18 +207,32 @@ export default function QueryInputView({
         </p>
       </div>
 
-      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">Match preview (retrieval)</p>
+      <details
+        className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4"
+      >
+        <summary className="cursor-pointer list-none flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wide text-slate-500">Match preview (retrieval)</span>
+          <span className="text-xs text-slate-500 select-none">
+            {!matchPreview
+              ? "—"
+              : matchPreview.clarifying_question && (!matchPreview.retrieval_query || matchPreview.retrieval_query.trim() === "")
+              ? "⚠ needs clarification"
+              : matchPreview.n_candidates_above_min_score > 0
+              ? `${matchPreview.n_candidates_above_min_score} strong match${matchPreview.n_candidates_above_min_score === 1 ? "" : "es"}`
+              : "no strong matches"}
+          </span>
+        </summary>
+
         {!matchPreview ? (
-          <p className="mt-2 text-sm text-slate-400">Type a goal to see how many strong matches exist.</p>
+          <p className="mt-3 text-sm text-slate-400">Type a goal to see how many strong matches exist.</p>
         ) : matchPreview.clarifying_question && (!matchPreview.retrieval_query || matchPreview.retrieval_query.trim() === "") ? (
-          <div className="mt-2 rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 space-y-1">
+          <div className="mt-3 rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 space-y-1">
             <p className="text-sm font-semibold text-amber-200">Needs clarification</p>
             <p className="text-sm text-amber-100">{matchPreview.clarifying_question}</p>
-            <p className="text-xs text-amber-200/60">You can still submit, but the pipeline may ask for clarification again and return you to this page. Adding a subcategory or a concrete product keyword improves your chances of getting results.</p>
+            <p className="text-xs text-amber-200/60">You can still submit, but adding a subcategory or product keyword improves your chances of getting results.</p>
           </div>
         ) : (
-          <div className="mt-2">
+          <div className="mt-3">
             <p className="text-sm text-slate-300">
               Strong matches (score ≥ {Number(matchPreview.min_score || 0).toFixed(2)}):{" "}
               <span className="font-semibold text-slate-100">{matchPreview.n_candidates_above_min_score}</span>
@@ -229,7 +243,7 @@ export default function QueryInputView({
                   <li key={c.product_id} className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <p className="font-semibold text-slate-100">{c.title || c.product_id}</p>
                     <p className="mt-0.5 text-xs text-slate-400">
-                      {c.category}{c.subcategory ? ` • ${c.subcategory}` : ""} • score {Number(c.score || 0).toFixed(3)}
+                      {c.category}{c.subcategory ? ` • ${c.subcategory}` : ""} · score {Number(c.score || 0).toFixed(3)}
                     </p>
                   </li>
                 ))}
@@ -237,17 +251,13 @@ export default function QueryInputView({
             )}
             {!matchPreview.n_candidates_above_min_score && (
               <div className="mt-2 space-y-1">
-                <p className="text-sm text-slate-400">
-                  No strong matches. Add a category/subcategory or example product keyword.
-                </p>
-                <p className="text-xs text-slate-500">
-                  You can still submit — the pipeline will rewrite your goal and search more broadly.
-                </p>
+                <p className="text-sm text-slate-400">No strong matches. Add a category/subcategory or example product keyword.</p>
+                <p className="text-xs text-slate-500">You can still submit — the pipeline will rewrite your goal and search more broadly.</p>
               </div>
             )}
           </div>
         )}
-      </div>
+      </details>
 
       <details className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
         <summary className="cursor-pointer text-sm font-semibold text-slate-200">Advanced filters</summary>

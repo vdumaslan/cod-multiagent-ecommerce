@@ -2,9 +2,65 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from app.llm import OllamaClient, OllamaChatResult, extract_json_object, validate_specialist_proposal, SchemaError
+
+
+def _fix_fact_claims(result: dict[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Replace hallucinated pricing_source / price_missing values in LLM prose with ground truth.
+
+    Small models frequently copy the wrong pricing_source value (e.g. 'fallback') from the
+    few-shot example rather than the actual candidate. This post-processor corrects those fields
+    before the result is passed to the Critic or saved to disk.
+    """
+    pid_to_facts: dict[str, dict[str, str]] = {}
+    for c in candidates:
+        pid = str(c.get("product_id") or "").strip()
+        if not pid:
+            continue
+        pr = c.get("pricing") or {}
+        src = str(pr.get("source") or "fallback")
+        pm = "true" if pr.get("price_missing", src != "cache") else "false"
+        pid_to_facts[pid] = {"pricing_source": src, "price_missing": pm}
+
+    def _fix(s: str) -> str:
+        for pid, facts in pid_to_facts.items():
+            if pid not in s:
+                continue
+            src = facts["pricing_source"]
+            pm = facts["price_missing"]
+            s = re.sub(r"pricing_source=['\"][\w]+['\"]", f"pricing_source='{src}'", s)
+            s = re.sub(r"price_missing=(true|false)", f"price_missing={pm}", s, flags=re.IGNORECASE)
+            # Sentence-level cleanup: when the product actually has a cache signal, remove
+            # phrases that imply no pricing data is available (leakage from few-shot fallback examples).
+            if src == "cache":
+                s = re.sub(
+                    r";?\s*repricing without a cache signal is ungrounded\.?",
+                    "; pricing signal is available — verify other risk signals before repricing.",
+                    s, flags=re.IGNORECASE,
+                )
+                s = re.sub(
+                    r"cannot ground a reprice\s*[—\-–]\s*investigate instead\.?",
+                    "pricing signal is available; investigate only if other risk signals are elevated.",
+                    s, flags=re.IGNORECASE,
+                )
+                s = re.sub(
+                    r"pricing data unavailable\s*[—\-–]\s*investigate to gather evidence before acting\.?",
+                    "pricing data available from cache.",
+                    s, flags=re.IGNORECASE,
+                )
+                s = re.sub(
+                    r"price_missing=true\s*\(fallback source\)[^;.]*[;.]?",
+                    f"price_missing=false (cache source available).",
+                    s, flags=re.IGNORECASE,
+                )
+        return s
+
+    for key in ("key_claims", "concerns"):
+        result[key] = [_fix(c) for c in (result.get(key) or [])]
+    return result
 
 
 _SYSTEM = (
@@ -29,9 +85,9 @@ _FEW_SHOT = (
     '{"product_id":"EXAMPLE_3","action_type":"investigate","recommended_price_change_pct":0.0}'
     '],'
     '"key_claims":['
-    '"EXAMPLE_1: recommended_price_change_pct=2.5% (cache, small delta); p_neg=0.04 (n_reviews=24) supports safe reprice.",'
-    '"EXAMPLE_2: stock_status=low_stock (risk_flag=true); holding price to avoid stockout.",'
-    '"EXAMPLE_3: price_missing=true (fallback source); cannot ground a reprice — investigate instead."'
+    '"EXAMPLE_1: model_price_change_signal_pct=2.5% (cache signal, small delta); p_neg=0.04 (n_reviews=24) supports safe reprice.",'
+    '"EXAMPLE_2: stock_status=low_stock (risk_flag=true); hold because inventory risk makes demand-increasing actions unsafe.",'
+    '"EXAMPLE_3: price_missing=true (fallback source); pricing data unavailable — investigate to gather evidence before acting."'
     '],'
     '"concerns":['
     '"EXAMPLE_1: large_delta=false but monitor if p_neg rises above 0.20.",'
@@ -80,18 +136,23 @@ def build_messages(
             "suggested_action": c.get("suggested_action"),
             "pricing_source": c.get("pricing", {}).get("source"),
             "pricing_flags": {
+                "moderate_delta": (c.get("pricing", {}) or {}).get("moderate_delta", False),
                 "large_delta": (c.get("pricing", {}) or {}).get("large_delta", False),
                 "near_bound": (c.get("pricing", {}) or {}).get("near_bound", False),
                 "shrink_applied": (c.get("pricing", {}) or {}).get("shrink_applied", False),
                 "shrink_factor": (c.get("pricing", {}) or {}).get("shrink_factor", 1.0),
             },
-            "recommended_price_change_pct": c.get("recommended_price_change_pct", 0.0),
+            # Renamed from recommended_price_change_pct to avoid confusion with Advocate's own proposal.
+            # This is the PRICING MODEL's signal, not a confirmed recommendation.
+            "model_price_change_signal_pct": c.get("recommended_price_change_pct", 0.0),
             "sentiment": {k: c.get("sentiment", {}).get(k) for k in ("p_pos", "p_neu", "p_neg", "n_reviews")},
             "inventory_status": c.get("inventory", {}).get("stock_status"),
             "risk_flag": c.get("inventory", {}).get("risk_flag"),
             "available_to_sell": c.get("signals", {}).get("available_to_sell"),
             "mean_daily_revenue": c.get("signals", {}).get("mean_daily_revenue"),
+            "total_units_sold": c.get("signals", {}).get("total_units_sold"),
             "total_returns": c.get("signals", {}).get("total_returns"),
+            "return_rate": c.get("signals", {}).get("return_rate"),
             "retrieval_score": c.get("evidence", {}).get("retrieval_score"),
         }
         for c in payload.get("candidates", [])
@@ -123,15 +184,26 @@ def build_messages(
                 + cot
                 + few_shot
                 + context
-                + "Return STRICT JSON only. No markdown, no explanation, no extra text.\n"
+                +                 "Return STRICT JSON only. No markdown, no explanation, no extra text.\n"
                 f"Keys: proposed_actions (top {top_k}), key_claims (<=5 strings), concerns (<=5 strings).\n"
                 "Each proposed_action must have: product_id (string), action_type (string), recommended_price_change_pct (number).\n"
                 "Allowed action_type values: reprice, hold, promote, investigate, restock.\n"
                 "Grounding rules:\n"
-                "- Use the candidate's recommended_price_change_pct as your starting point for any reprice action.\n"
+                "- Use the candidate's model_price_change_signal_pct as your starting point for any reprice action.\n"
+                "  This is the PRICING MODEL's signal only — it is NOT the Advocate's confirmed proposal until you choose reprice.\n"
                 "- If pricing_source is 'fallback', prefer action_type='investigate' and set recommended_price_change_pct=0.0.\n"
-                "- Do not flip the sign of the candidate recommended_price_change_pct unless you cite a specific risk/constraint signal.\n"
+                "- Do not flip the sign of the model_price_change_signal_pct unless you cite a specific risk/constraint signal.\n"
                 "- For non-reprice actions, set recommended_price_change_pct=0.0.\n"
+                "Delta flags (pricing_flags): moderate_delta=apply carefully; large_delta=human review recommended; "
+                "near_bound=high caution; large_delta alone does NOT require hold or investigate unless combined with "
+                "p_neg>=0.30 (n_reviews>=10) or total_returns>=5.\n"
+                "Returns signals: use return_rate (not raw total_returns alone) when available. "
+                "total_returns>=5 AND return_rate>=0.05 = investigate first. "
+                "return_rate 0.03–0.05 = moderate risk, note as caution but do not hard-block. "
+                "For high-volume products, a few returns may be normal; always check return_rate.\n"
+                "Inventory language: only say 'stockout risk' if inventory_status='stockout_risk'; "
+                "only say 'low stock' if inventory_status='low_stock' or risk_flag=true; "
+                "for healthy inventory write 'inventory is healthy and does not block this action'.\n"
                 "Use only product_ids from candidates below.\n"
                 f"INPUT_JSON:\n{json.dumps(slim_payload)}"
             ),
@@ -213,7 +285,8 @@ def run(
         return _fallback(payload.get("candidates", []), top_k), raw
 
     try:
-        return validate_specialist_proposal(obj, allowed=allowed, top_k=top_k), raw
+        validated = validate_specialist_proposal(obj, allowed=allowed, top_k=top_k)
+        return _fix_fact_claims(validated, payload.get("candidates", [])), raw
     except SchemaError:
         raw[f"{trace_key}_fallback"] = True
         return _fallback(payload.get("candidates", []), top_k), raw

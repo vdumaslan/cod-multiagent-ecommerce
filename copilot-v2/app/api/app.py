@@ -87,7 +87,13 @@ def catalog_facets() -> CatalogFacetsResponse:
 @app.post("/retrieval/preview", response_model=RetrievalPreviewResponse)
 def retrieval_preview(req: RetrievalPreviewRequest) -> RetrievalPreviewResponse:
     p = get_pipeline()
-    out = p.retrieval_preview(goal=req.goal, constraints=req.constraints.model_dump(), top_k_preview=req.top_k_preview)
+    out = p.retrieval_preview(
+        goal=req.goal,
+        constraints=req.constraints.model_dump(),
+        top_k_preview=req.top_k_preview,
+        selected_category=req.selected_category,
+        selected_subcategory=req.selected_subcategory,
+    )
     return RetrievalPreviewResponse(**out)
 
 
@@ -104,6 +110,8 @@ def pipeline(req: PipelineRequest) -> PipelineResponse:
         constraints=req.constraints.model_dump(),
         enable_pricing=req.enable_pricing,
         enable_sentiment=req.enable_sentiment,
+        selected_category=req.selected_category,
+        selected_subcategory=req.selected_subcategory,
     )
     return PipelineResponse(**result)
 
@@ -250,5 +258,7 @@ def orchestrate(req: OrchestrateRequest) -> OrchestrateResponse:
         prompt_version=req.prompt_version,
         human_review_mode=req.human_review_mode,
         human_feedback=req.human_feedback,
+        selected_category=req.selected_category,
+        selected_subcategory=req.selected_subcategory,
     )
     return OrchestrateResponse(**result)

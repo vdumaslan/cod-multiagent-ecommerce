@@ -155,8 +155,31 @@ def run(
 
     if final_actions is None:
         raw["used_baseline_fallback"] = True
+        raw["judge_used"] = False
+        raw["judge_recovery_reason"] = "Both judge attempts failed JSON validation; output replaced with baseline."
         final_actions, fallback = _fallback_from_baseline(baseline_actions, allowed, top_k)
         return final_actions, raw, fallback
+
+    # Validate that Judge only references product_ids from Advocate's proposed_actions.
+    # If Judge introduces new candidates (hallucinated), discard them and keep Advocate order.
+    adv_proposed_pids: set[str] = {
+        str((a or {}).get("product_id") or "").strip()
+        for a in ((payload.get("advocate") or {}).get("proposed_actions") or [])
+        if (a or {}).get("product_id")
+    }
+    if adv_proposed_pids:
+        introduced = [
+            str(a.get("product_id") or "") for a in final_actions
+            if str(a.get("product_id") or "").strip() not in adv_proposed_pids
+        ]
+        if introduced:
+            raw["judge_introduced_pids"] = introduced
+            raw["judge_pid_warning"] = (
+                f"Judge introduced {len(introduced)} product_id(s) not in Advocate proposal: "
+                f"{introduced}. These will be dropped during debate linkage."
+            )
+
+    raw["judge_used"] = True
 
     # Build advocate proposal map (for deterministic debate linkage post-processing).
     adv_map: dict[str, dict[str, Any]] = {}

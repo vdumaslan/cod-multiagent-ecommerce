@@ -191,13 +191,22 @@ export default function ResultsView({
               </div>
             )}
 
-            {/* Evidence — collapsed by default */}
-            {plan.evidenceSnippet && (
-              <details className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm">
-                <summary className="cursor-pointer select-none text-xs uppercase tracking-wide text-slate-500 hover:text-slate-300">
-                  Source evidence <span className="normal-case text-slate-600">(click to expand)</span>
+            {/* Supporting signals — collapsed by default, replaces raw evidence dump */}
+            {!!(plan.supportingSignals || []).length && (
+              <details className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
+                <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-slate-300">
+                  Supporting signals <span className="normal-case font-normal text-slate-600">(click to expand)</span>
                 </summary>
-                <p className="mt-2 text-slate-400 leading-relaxed">{plan.evidenceSnippet}</p>
+                <ul className="mt-2 divide-y divide-slate-800/60">
+                  {plan.supportingSignals.map((s) => (
+                    <li key={s.label} className="flex items-baseline justify-between gap-3 py-1.5 text-xs">
+                      <span className="shrink-0 text-slate-500">{s.label}</span>
+                      <span className={`text-right font-medium ${s.warn ? "text-amber-300" : "text-slate-300"}`}>
+                        {s.value}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </details>
             )}
 

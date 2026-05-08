@@ -38,7 +38,8 @@ class InventoryAgent:
         if not cache_path.exists():
             raise FileNotFoundError(f"Inventory cache not found at {cache_path}. Run precompute_inventory.py first.")
         cols = ["product_id", "stock_status", "risk_flag", "on_hand_units",
-                "safety_stock_units", "available_to_sell", "mean_daily_revenue", "total_returns"]
+                "safety_stock_units", "available_to_sell", "mean_daily_revenue",
+                "total_units_sold", "total_returns"]
         df = pd.read_parquet(cache_path, columns=cols)
         self._cache: dict[str, dict[str, object]] = {
             str(row["product_id"]): {
@@ -48,6 +49,7 @@ class InventoryAgent:
                 "safety_stock_units": float(row["safety_stock_units"]),
                 "available_to_sell": float(row["available_to_sell"]),
                 "mean_daily_revenue": float(row["mean_daily_revenue"]),
+                "total_units_sold": float(row["total_units_sold"]),
                 "total_returns": float(row["total_returns"]),
             }
             for _, row in df.iterrows()

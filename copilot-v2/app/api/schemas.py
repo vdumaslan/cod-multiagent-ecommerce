@@ -11,6 +11,7 @@ class Constraints(BaseModel):
     # Accept a few aliases to keep older UIs / test harnesses working.
     objective: Literal[
         "revenue",
+        "grow_revenue",
         "profit",
         "profit_proxy",
         "clear_inventory",
@@ -35,6 +36,8 @@ class Constraints(BaseModel):
             return "clear_inventory"
         if s in {"liquidation"}:
             return "clear_inventory"
+        if s in {"grow revenue", "grow_rev"}:
+            return "grow_revenue"
         return s
 
 
@@ -54,6 +57,8 @@ class OrchestrateRequest(BaseModel):
     prompt_version: str = "v1"
     human_review_mode: Literal["skip", "second_round", "second_round_with_feedback"] = "skip"
     human_feedback: str | None = None
+    selected_category: str = ""
+    selected_subcategory: str = ""
 
 
 class PipelineRequest(BaseModel):
@@ -64,6 +69,10 @@ class PipelineRequest(BaseModel):
     constraints: Constraints = Field(default_factory=Constraints)
     enable_pricing: bool = True
     enable_sentiment: bool = True
+    # UI scope selection — used to derive a clean retrieval query instead of
+    # feeding the full business-goal sentence to FAISS.
+    selected_category: str = ""
+    selected_subcategory: str = ""
 
 
 class DebateStartRequest(BaseModel):
@@ -97,7 +106,9 @@ class InventorySignals(BaseModel):
     safety_stock_units: float
     available_to_sell: float
     mean_daily_revenue: float
+    total_units_sold: float = 0.0
     total_returns: float
+    return_rate: float | None = None
 
 
 class InventoryResult(BaseModel):
@@ -111,7 +122,9 @@ class ActionSignals(BaseModel):
     margin_pct: float = 0.0
     available_to_sell: float = 0.0
     mean_daily_revenue: float = 0.0
+    total_units_sold: float = 0.0
     total_returns: float = 0.0
+    return_rate: float | None = None
     on_hand_units: float = 0.0
     safety_stock_units: float = 0.0
 
@@ -217,6 +230,8 @@ class DebateJudgeResponse(BaseModel):
     ranked_actions: list[RankedAction]
     judge_raw: dict[str, Any] = Field(default_factory=dict)
     judge_fallback: bool = False
+    judge_used: bool | None = None
+    judge_pid_warning: str | None = None
 
 
 class ABEventRequest(BaseModel):
@@ -279,6 +294,8 @@ class RetrievalPreviewRequest(BaseModel):
     goal: str
     constraints: Constraints = Field(default_factory=Constraints)
     top_k_preview: int = 5
+    selected_category: str = ""
+    selected_subcategory: str = ""
 
 
 class RetrievalPreviewResponse(BaseModel):

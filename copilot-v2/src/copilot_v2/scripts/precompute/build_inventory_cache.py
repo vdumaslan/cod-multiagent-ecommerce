@@ -91,9 +91,10 @@ def main() -> None:
     skus = pd.read_parquet(skus_src, columns=["product_id", "on_hand_units", "safety_stock_units"])
 
     print(f"Loading {sales_src}")
-    sales = pd.read_parquet(sales_src, columns=["product_id", "gross_revenue_usd", "return_units"])
+    sales = pd.read_parquet(sales_src, columns=["product_id", "gross_revenue_usd", "units_sold", "return_units"])
     sales_agg = sales.groupby("product_id").agg(
         mean_daily_revenue=("gross_revenue_usd", "mean"),
+        total_units_sold=("units_sold", "sum"),
         total_returns=("return_units", "sum"),
     ).reset_index()
 
@@ -113,6 +114,8 @@ def main() -> None:
         status, risk, rules = _classify_row(row, thresholds=thresholds)
         on_hand = float(row.get("on_hand_units", 0) or 0)
         safety = float(row.get("safety_stock_units", 0) or 0)
+        total_sold = float(row.get("total_units_sold", 0) or 0)
+        total_ret  = float(row.get("total_returns", 0) or 0)
         results.append({
             "product_id": str(row["product_id"]),
             "stock_status": status,
@@ -121,7 +124,8 @@ def main() -> None:
             "safety_stock_units": safety,
             "available_to_sell": max(on_hand - safety, 0.0),
             "mean_daily_revenue": float(row.get("mean_daily_revenue", 0) or 0),
-            "total_returns": float(row.get("total_returns", 0) or 0),
+            "total_units_sold": total_sold,
+            "total_returns": total_ret,
             "rules_fired": rules,
         })
 

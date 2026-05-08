@@ -53,9 +53,7 @@ function stripMarkdown(text) {
 function cleanTechnicalText(text, maxLen = 300) {
   let s = String(text || "");
 
-  // Shorten raw product IDs: B0XXXXXXXX → …XXXXXX
-  s = s.replace(/\b(B0[A-Z0-9]{8,})\b/g, (m) => `…${m.slice(-6)}`);
-  // Remove redundant "product_id=…XXXXXX" fragments
+  // Remove redundant "(product_id=B0XXXXX)" parenthetical fragments (keep the bare ID in the sentence)
   s = s.replace(/\(product_id=[^)]+\)/gi, "");
 
   // Translate common JSON field names → plain English
@@ -63,81 +61,141 @@ function cleanTechnicalText(text, maxLen = 300) {
   s = s.replace(/p_pos\s*=\s*([\d.]+)/gi, (_, v) => `${Math.round(parseFloat(v) * 100)}% positive`);
   s = s.replace(/n_?reviews\s*=\s*(\d+)/gi, (_, v) => `${v} reviews`);
   s = s.replace(/total_?returns\s*=\s*(\d+)/gi, (_, v) => `${v} returns`);
-  s = s.replace(/recommended_?price_?change_?pct\s*=\s*([-\d.]+)/gi, (_, v) => {
+
+  // "reprice at recommended_price_change_pct=±N%" — handle as a single unit before the general case
+  s = s.replace(/reprice at recommended_?price_?change_?pct\s*=\s*([+-]?[\d.]+)%?/gi, (_, v) => {
+    const n = parseFloat(v);
+    if (Math.abs(n) < 0.01) return "reprice at 0%";
+    return `reprice at ${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+  });
+
+  // recommended_price_change_pct=±N.NNN% (consume optional trailing % to avoid %%)
+  s = s.replace(/recommended_?price_?change_?pct\s*=\s*([+-]?[\d.]+)%?/gi, (_, v) => {
     const n = parseFloat(v);
     if (Math.abs(n) < 0.01) return "price change: 0%";
     return `price change: ${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
   });
-  s = s.replace(/large_delta\s*=\s*true/gi, "large price delta");
-  s = s.replace(/large_delta\s*=\s*false/gi, "normal price delta");
+
+  // "Advocate proposed reprice=±N.NNN%" or "reprice at ±N.NNN%" — raw float from Critic prose
+  s = s.replace(/(?:proposed\s+)?reprice\s*=\s*([+-]?[\d.]+)%?/gi, (_, v) => {
+    const n = parseFloat(v);
+    if (Math.abs(n) < 0.01) return "reprice at 0%";
+    return `reprice at ${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+  });
+
+  // "reprice at recommended_price_change_pct=±N%" (Critic agreements pattern)
+  s = s.replace(/reprice at price change:\s*([+-]?[\d.]+)%%?/gi, (_, v) => {
+    const n = parseFloat(v);
+    return `reprice at ${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+  });
+
+  s = s.replace(/model_price_change_signal_pct\s*=\s*([+-]?[\d.]+)%%?/gi, (_, v) => {
+    const n = parseFloat(v);
+    return `pricing model signal: ${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+  });
   s = s.replace(/near_bound\s*=\s*true/gi, "near policy cap");
+  s = s.replace(/large_delta\s*=\s*true/gi, "large price delta — human review recommended");
+  s = s.replace(/large_delta\s*=\s*false/gi, "normal price delta");
+  s = s.replace(/moderate_delta\s*=\s*true/gi, "moderate price delta — apply carefully");
+  s = s.replace(/moderate_delta\s*=\s*false/gi, "normal price delta");
   s = s.replace(/risk_flag\s*=\s*true/gi, "inventory risk flagged");
   s = s.replace(/action_type\s*(?:to|=)\s*(\w+)/gi, (_, t) => t);
   s = s.replace(/stock_status\s*=\s*(\w+)/gi, (_, v) => `stock: ${v}`);
+
   // Clean up double spaces left by removals
   s = s.replace(/\s{2,}/g, " ").trim();
 
   return s.length > maxLen ? s.slice(0, maxLen - 1) + "…" : s;
 }
 
-function formatAdvocate(adv, round) {
+// Build a pid → ground-truth facts map from enriched candidates.
+// Used to overwrite any hallucinated pricing_source / price_missing values the LLM may have written.
+function buildCandidateMap(enrichedCandidates) {
+  const map = {};
+  for (const c of (enrichedCandidates || [])) {
+    const pid = String(c.product_id || "").trim();
+    if (!pid) continue;
+    const pr = c.pricing || {};
+    map[pid] = {
+      pricingSource: String(pr.source || "fallback"),
+      priceMissing: !!(pr.price_missing || pr.source !== "cache"),
+    };
+  }
+  return map;
+}
+
+// Re-anchor any pricing_source / price_missing mention in an LLM prose string
+// by substituting the verified value for the product that appears in that string.
+function anchorPricingFacts(text, candidateMap) {
+  let s = text;
+  for (const [pid, facts] of Object.entries(candidateMap)) {
+    if (!s.includes(pid)) continue;
+    const src = facts.pricingSource;
+    const pm = facts.priceMissing ? "true" : "false";
+    s = s.replace(/pricing_source=['"][\w]+['"]/g, `pricing_source='${src}'`);
+    s = s.replace(/price_missing=(true|false)/gi, `price_missing=${pm}`);
+  }
+  return s;
+}
+
+function formatAdvocate(adv, round, candidateMap = {}) {
   const prefix = round > 1 ? `[Round ${round}] ` : "";
   const parts = [];
 
-  // Lead with key claims — clean and truncate product IDs / raw fields
+  // Lead with key claims — clean, anchor ground-truth facts, truncate
   const claims = (adv.key_claims || []).slice(0, 3)
-    .map((c) => `• ${cleanTechnicalText(c, 160)}`)
+    .map((c) => `• ${cleanTechnicalText(anchorPricingFacts(c, candidateMap), 160)}`)
     .join("\n");
   if (claims) parts.push(`${prefix}Advocate's position:\n${claims}`);
 
-  // Proposed actions — human-readable direction
+  // Proposed actions — human-readable direction with full product ID
   const actions = (adv.proposed_actions || []).slice(0, 3)
     .map((a) => {
       const pct = Number(a.recommended_price_change_pct || 0);
       const type = String(a.action_type || "reprice");
       let dir = type;
       if (type === "reprice") dir = Math.abs(pct) < 0.01 ? "hold price" : (pct > 0 ? `increase price +${pct.toFixed(1)}%` : `decrease price ${pct.toFixed(1)}%`);
-      return `• ${dir} (…${String(a.product_id).slice(-6)})`;
+      return `• ${dir} (${String(a.product_id)})`;
     })
     .join("\n");
   if (actions) parts.push(`Proposed:\n${actions}`);
 
-  // Concerns — clean product IDs
+  // Concerns — clean and anchor
   const concerns = (adv.concerns || []).slice(0, 2)
-    .map((c) => `• ${cleanTechnicalText(c, 160)}`)
+    .map((c) => `• ${cleanTechnicalText(anchorPricingFacts(c, candidateMap), 160)}`)
     .join("\n");
   if (concerns) parts.push(`Concerns:\n${concerns}`);
 
   return parts.join("\n\n") || "No advocate output.";
 }
 
-function formatCritic(crit, round) {
+function formatCritic(crit, round, candidateMap = {}) {
   const prefix = round > 1 ? `[Round ${round}] ` : "";
   const parts = [];
 
-  // Lead with disagreements (most actionable for sellers)
+  // Lead with disagreements — anchor ground-truth facts before cleaning
   const disagreements = (crit.disagreements || []).slice(0, 3)
-    .map((x) => `• ${cleanTechnicalText(x, 180)}`);
+    .map((x) => `• ${cleanTechnicalText(anchorPricingFacts(x, candidateMap), 180)}`);
   if (disagreements.length) {
     parts.push(`${prefix}Critic challenges:\n${disagreements.join("\n")}`);
   }
 
   const changes = (crit.suggested_changes || []).slice(0, 2)
-    .map((x) => `• ${cleanTechnicalText(x, 140)}`);
+    .map((x) => `• ${cleanTechnicalText(anchorPricingFacts(x, candidateMap), 140)}`);
   if (changes.length) parts.push(`Suggested changes:\n${changes.join("\n")}`);
 
   const agreements = (crit.agreements || []).slice(0, 2)
-    .map((x) => `• ${cleanTechnicalText(x, 140)}`);
+    .map((x) => `• ${cleanTechnicalText(anchorPricingFacts(x, candidateMap), 140)}`);
   if (agreements.length) parts.push(`Agreed on:\n${agreements.join("\n")}`);
 
   return parts.join("\n\n") || "No critic output.";
 }
 
-function advCritTurns(adv, crit, round) {
+function advCritTurns(adv, crit, round, candidateMap = {}) {
   const now = Date.now();
   return [
-    { id: `adv-r${round}-${now}`, actor: "Advocate LLM", message: formatAdvocate(adv, round) },
-    { id: `crit-r${round}-${now + 1}`, actor: "Critic LLM", message: formatCritic(crit, round) },
+    { id: `adv-r${round}-${now}`, actor: "Advocate LLM", message: formatAdvocate(adv, round, candidateMap) },
+    { id: `crit-r${round}-${now + 1}`, actor: "Critic LLM", message: formatCritic(crit, round, candidateMap) },
   ];
 }
 
@@ -266,15 +324,20 @@ function buildTopDrivers(a) {
     drivers.push(`Sentiment: p_neg=${pNeg.toFixed(2)} (n=${nReviews})`);
   }
   if (returns >= 3) {
-    drivers.push(`Returns: total_returns=${returns}`);
+    const uSold = Number(a?.signals?.total_units_sold || 0);
+    const rRate = a?.signals?.return_rate != null ? Number(a.signals.return_rate) : (uSold > 0 ? returns / uSold : null);
+    const retStr = rRate != null ? `${returns} returns (${(rRate * 100).toFixed(1)}% rate)` : `${returns} returns`;
+    drivers.push(`Returns: ${retStr}`);
   }
 
   if (priceMissing || pricingSource === "fallback") {
     drivers.push("Price: unknown / pricing unavailable");
   } else if (a?.pricing?.near_bound) {
-    drivers.push("Pricing: near bound (treat delta skeptically)");
+    drivers.push("Pricing: near policy cap — staged rollout advised");
   } else if (a?.pricing?.large_delta) {
-    drivers.push("Pricing: large delta (treat delta skeptically)");
+    drivers.push("Pricing: large delta — human review recommended");
+  } else if (a?.pricing?.moderate_delta) {
+    drivers.push("Pricing: moderate delta — apply carefully");
   } else if (Math.abs(pct) >= 5) {
     drivers.push(`Pricing delta: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`);
   }
@@ -321,7 +384,7 @@ function computeConfidence(a, pct) {
   if (nRev === 0) return { level: "Low", color: "text-rose-300", bg: "bg-rose-500/15 border-rose-500/30" };
 
   // Medium confidence: have data but signals are mixed or uncertain
-  if (pr.near_bound || pr.large_delta) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
+  if (pr.near_bound || pr.large_delta || pr.moderate_delta) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
   if (pNeg >= 0.25) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
   if (retrieval < 0.85) return { level: "Medium", color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/30" };
 
@@ -331,69 +394,118 @@ function computeConfidence(a, pct) {
 
 function buildWhyBullets(a, pct, finalActionType) {
   // Return exactly 1 primary reason + at most 1 supporting/cautionary note.
+  // Each primary is the dominant signal that determined the action type.
   const pr = a?.pricing || {};
   const sent = a?.sentiment || {};
   const inv = a?.inventory || {};
   const sig = a?.signals || {};
   const nRev = Number(sent?.n_reviews || 0);
   const pNeg = Number(sent?.p_neg || 0);
+  const pPos = Number(sent?.p_pos || 0);
   const returns = Number(sig?.total_returns || 0);
+  const unitsSoldW = Number(sig?.total_units_sold || 0);
+  const returnRateW = sig?.return_rate != null ? Number(sig.return_rate) : (unitsSoldW > 0 ? returns / unitsSoldW : null);
+  const highReturnRisk = returnRateW != null ? (returns >= 5 && returnRateW >= 0.05) : returns >= 5;
+  const modReturnRisk = returnRateW != null ? returnRateW >= 0.03 : returns >= 3;
+  const returnLabel = returnRateW != null
+    ? `${returns} returns (${(returnRateW * 100).toFixed(1)}% of ${unitsSoldW} sold)`
+    : `${returns} returns`;
   const stock = String(inv?.stock_status || "unknown");
   const primary = [];
   const secondary = [];
 
   if (finalActionType === "restock") {
-    primary.push("Inventory is critically low — restocking prevents lost sales opportunities.");
+    if (stock === "stockout_risk")
+      primary.push("Product is at stockout risk — restocking is urgent to avoid lost sales.");
+    else
+      primary.push("Inventory is critically low — restock now to avoid stockouts and lost revenue.");
     return primary;
   }
 
   if (finalActionType === "hold") {
-    if (stock === "low_stock" || inv?.risk_flag) primary.push("Inventory risk detected — holding price avoids adding demand pressure to a supply-constrained SKU.");
-    else primary.push("Multiple risk signals outweigh the pricing opportunity — holding is the safer path.");
+    // Priority: stockout > overstocked (no pricing) > low stock > negative sentiment > returns > large delta > missing pricing > positive hold
+    if (stock === "stockout_risk")
+      primary.push("Stockout risk detected — holding price prevents demand from exceeding what is available to sell.");
+    else if (stock === "overstocked" && (pr.price_missing || pr.source === "fallback"))
+      primary.push("Inventory is overstocked but pricing data is unavailable — holding avoids a price change without sufficient evidence. Review promotion options first.");
+    else if (stock === "overstocked")
+      primary.push("Inventory is overstocked — a price change alone may not clear surplus effectively. Consider a promotion strategy instead.");
+    else if (stock === "low_stock" || inv?.risk_flag)
+      primary.push("Inventory is under pressure — holding price prevents demand from outpacing available supply.");
+    else if (pNeg >= 0.25 && nRev >= 5)
+      primary.push(`Customer feedback is ${pNeg >= 0.40 ? "strongly" : "moderately"} negative (${Math.round(pNeg * 100)}% of ${nRev} reviews) — not the right time to reprice.`);
+    else if (modReturnRisk)
+      primary.push(`${returnLabel} — investigate the root cause before making any price change.`);
+    else if (pr.large_delta)
+      primary.push("Pricing model suggests a large adjustment, but confidence is insufficient to act — hold until signals stabilize.");
+    else if (pr.price_missing || pr.source === "fallback")
+      primary.push("No pricing model data available for this product — holding is the safe default.");
+    else
+      primary.push("Pricing model finds minimal opportunity — current price appears well-positioned for this product.");
     return primary;
   }
 
   if (finalActionType === "investigate") {
-    if (returns >= 3) primary.push(`${returns} returns logged — root cause needs investigation before any price change.`);
-    else if (pNeg >= 0.30) primary.push(`${Math.round(pNeg * 100)}% of ${nRev} reviews are negative — understand quality issues before repricing.`);
-    else if (pr.price_missing) primary.push("Pricing data is unavailable — cannot form a confident recommendation without it.");
-    else if (stock === "low_stock" || inv?.risk_flag) primary.push("Inventory risk present — assess supply situation before committing to a price change.");
-    else primary.push("Mixed or uncertain signals — gather more data before acting.");
+    // Priority: high returns > very negative sentiment > moderate negative > missing pricing > inventory > generic
+    if (highReturnRisk)
+      primary.push(`${returnLabel} — high return rate strongly suggests a product issue; investigate before any repricing.`);
+    else if (modReturnRisk)
+      primary.push(`${returnLabel} — identify the root cause before committing to a price change.`);
+    else if (pNeg >= 0.40)
+      primary.push(`${Math.round(pNeg * 100)}% of ${nRev} reviews are negative — product quality concerns need to be resolved before repricing.`);
+    else if (pNeg >= 0.30)
+      primary.push(`${Math.round(pNeg * 100)}% of ${nRev} reviews are negative — customer feedback suggests issues that a price change alone won't fix.`);
+    else if (pr.price_missing)
+      primary.push("No pricing data available for this product — a confident recommendation requires pricing model coverage.");
+    else if (stock === "low_stock" || inv?.risk_flag)
+      primary.push("Inventory risk present — assess supply situation before committing to any price action.");
+    else
+      primary.push("Signals are mixed or unclear — gather more data before taking action.");
     return primary;
   }
 
   if (finalActionType === "promote") {
-    primary.push("Overstocked SKU — a visibility boost moves inventory without sacrificing margin through price cuts.");
-    return primary;
+    primary.push("Product is overstocked — a visibility boost moves inventory without sacrificing margin through price cuts.");
+    // Positive secondary if sentiment supports it
+    if (pNeg < 0.15 && nRev >= 5)
+      secondary.push(`Sentiment is healthy (${Math.round(pPos * 100)}% positive on ${nRev} reviews) — product quality supports a promotional push.`);
+    else if (modReturnRisk)
+      secondary.push(`${returnLabel} — consider investigating return reasons alongside the promotion.`);
+    return [...primary, ...secondary].slice(0, 2);
   }
 
-  // reprice — pricing delta is shown separately in the pricing line, so focus the WHY
-  // on the evidence quality behind the recommendation, not the number itself.
+  // reprice — the pricing delta is shown in the pricing line; WHY focuses on signal quality
   if (pr.price_missing) {
-    primary.push("No pricing data available — cannot form a confident recommendation.");
+    primary.push("No pricing data available — recommendation is based on limited signals.");
   } else if (pr.near_bound) {
-    primary.push("Pricing signal exists but is near the policy cap — apply in stages.");
+    primary.push("Pricing signal exists but is near the policy cap — apply conservatively or in stages.");
   } else if (pr.large_delta) {
-    primary.push("Pricing model signals a large adjustment — verify before applying at full scale.");
+    primary.push("Pricing model signals a large adjustment — human review recommended before full rollout.");
+  } else if (pr.moderate_delta) {
+    primary.push("Pricing model signals a moderate adjustment — apply carefully and monitor response.");
   } else if (Math.abs(pct) < 0.01) {
     primary.push("Pricing model finds no strong signal — current price appears appropriate.");
   } else {
     primary.push("Pricing model finds a clear opportunity — signals support this adjustment.");
   }
 
-  // Secondary: most important cautionary note
+  // Secondary: most actionable cautionary or confirmatory note
   if (pNeg >= 0.25 && pct > 0) {
-    secondary.push(`Customer feedback is ${pNeg >= 0.40 ? "strongly" : "moderately"} negative (${Math.round(pNeg * 100)}%) — monitor closely after any increase.`);
+    secondary.push(`Customer feedback is ${pNeg >= 0.40 ? "strongly" : "moderately"} negative (${Math.round(pNeg * 100)}%) — monitor closely after any price increase.`);
   } else if (pr.near_bound) {
-    secondary.push("Delta is near the policy cap — apply conservatively or in stages.");
+    secondary.push("Delta is near the policy cap — stage the change rather than applying it all at once.");
   } else if (pr.large_delta) {
-    secondary.push("Suggested delta is large — verify before applying at full scale.");
-  } else if (returns >= 3) {
-    secondary.push(`${returns} returns logged — watch return rate after repricing.`);
+    secondary.push("Large adjustment suggested — consider applying half the delta first and monitoring the response.");
+  } else if (pr.moderate_delta) {
+    secondary.push("Moderate delta suggested — a small step-change and monitor is lower risk than a full adjustment.");
+  } else if (modReturnRisk) {
+    secondary.push(`${returnLabel} — watch return rate closely after repricing.`);
   } else if (nRev === 0) {
-    secondary.push("No review data — sentiment confidence is very low.");
+    secondary.push("No review data available — monitor customer response closely after any price change.");
   } else if (nRev < 10) {
-    secondary.push(`Only ${nRev} reviews — sentiment signal may not be representative.`);
+    secondary.push(`Only ${nRev} reviews — sentiment confidence is limited; monitor closely after the change.`);
+  } else if (pNeg < 0.10 && nRev >= 10 && pct > 0) {
+    secondary.push(`Sentiment is healthy (${Math.round(pNeg * 100)}% negative on ${nRev} reviews) — customer response risk is low.`);
   }
 
   return [...primary, ...secondary].slice(0, 2);
@@ -422,10 +534,118 @@ function buildOverrideNote(suggestedAction, finalActionType, a) {
     return "Recommendation changed to investigation — risk signals outweighed the pricing signal.";
   }
   if (suggestedAction === "reprice" && finalActionType === "hold") {
-    return "Recommendation reduced to hold — inventory or sentiment risk is too high to act on the pricing signal now.";
+    if (inv.risk_flag || ["low_stock", "stockout_risk"].includes(stock))
+      return "Recommendation reduced to hold — inventory risk makes it unsafe to act on the pricing signal now.";
+    if (pNeg >= 0.25 && returns >= 2)
+      return `Recommendation reduced to hold — negative feedback (${Math.round(pNeg * 100)}%) and ${returns} returns make this an unsafe time to reprice.`;
+    if (pNeg >= 0.25)
+      return `Recommendation reduced to hold — customer feedback (${Math.round(pNeg * 100)}% negative) is too elevated to safely reprice now.`;
+    if (returns >= 2)
+      return `Recommendation reduced to hold — ${returns} recent returns suggest investigating product issues before changing price.`;
+    return "Recommendation reduced to hold — signals do not support a price change at this time.";
   }
   // Generic fallback
   return "Recommendation adjusted based on combined signal analysis — review before acting.";
+}
+
+function extractAvgRatingFromDoc(docText) {
+  const m = String(docText || "").match(/avg_rating:\s*([\d.]+)/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function extractRatingCountFromDoc(docText) {
+  const m = String(docText || "").match(/rating_count:\s*(\d+)/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function buildSupportingSignals(a) {
+  const sent = a?.sentiment || {};
+  const inv = a?.inventory || {};
+  const sig = a?.signals || {};
+  const pr = a?.pricing || {};
+  const retrieval = Number(a?.evidence?.retrieval_score ?? 0);
+  const doc = a?.evidence?.points?.[0]?.text || "";
+  const avgRating = extractAvgRatingFromDoc(doc);
+  const ratingCount = extractRatingCountFromDoc(doc);
+  const nRev = Number(sent.n_reviews || 0);
+  const pNeg = Number(sent.p_neg || 0);
+  const pPos = Number(sent.p_pos || 0);
+  const returns = Number(sig.total_returns || 0);
+  const unitsSold = Number(sig.total_units_sold || 0);
+  const returnRate = sig.return_rate != null ? Number(sig.return_rate) : (unitsSold > 0 ? returns / unitsSold : null);
+  const stock = String(inv.stock_status || "unknown");
+  const signals = [];
+
+  // Sentiment (most seller-relevant)
+  if (nRev > 0) {
+    signals.push({
+      label: "Customer sentiment",
+      value: `${Math.round(pPos * 100)}% positive · ${Math.round(pNeg * 100)}% negative (${nRev} reviews)`,
+      warn: pNeg >= 0.25,
+    });
+  }
+
+  // Returns — show rate when volume is available; raw count alone is not enough context
+  if (returns > 0) {
+    const rateStr = returnRate != null
+      ? ` (${(returnRate * 100).toFixed(1)}% of ${unitsSold} sold)`
+      : "";
+    const warnRate = returnRate != null ? (returns >= 5 && returnRate >= 0.05) || returnRate >= 0.03 : returns >= 5;
+    signals.push({
+      label: "Returns",
+      value: `${returns} return${returns !== 1 ? "s" : ""}${rateStr}`,
+      warn: warnRate,
+    });
+  }
+
+  // Inventory status
+  if (stock !== "unknown") {
+    signals.push({
+      label: "Inventory",
+      value: stock.replace(/_/g, " "),
+      warn: inv.risk_flag || ["low_stock", "stockout_risk"].includes(stock),
+    });
+  }
+
+  // Pricing model availability & quality
+  if (pr.source === "cache") {
+    const tag = pr.near_bound
+      ? "near policy cap — staged rollout advised"
+      : pr.large_delta
+      ? "large delta — human review recommended"
+      : pr.moderate_delta
+      ? "moderate delta — apply carefully"
+      : "normal delta";
+    signals.push({
+      label: "Pricing model",
+      value: `Available · ${tag}`,
+      warn: pr.large_delta || pr.near_bound || pr.moderate_delta,
+    });
+  } else {
+    signals.push({
+      label: "Pricing model",
+      value: "No data — price signal unavailable",
+      warn: true,
+    });
+  }
+
+  // Rating from the top retrieved comparable document (nearest neighbour in the index)
+  if (avgRating != null) {
+    signals.push({
+      label: "Retrieved comparable rating",
+      value: `${avgRating.toFixed(1)} ★${ratingCount != null ? ` · ${ratingCount.toLocaleString()} reviews` : ""}`,
+      warn: avgRating < 3.5,
+    });
+  }
+
+  // Retrieval match quality
+  signals.push({
+    label: "Retrieval match",
+    value: `${Math.round(retrieval * 100)}% similarity`,
+    warn: retrieval < 0.82,
+  });
+
+  return signals;
 }
 
 function buildPlansFromRanked(ranked) {
@@ -435,12 +655,23 @@ function buildPlansFromRanked(ranked) {
     const sent = a.sentiment || {};
     const inv = a.inventory || {};
     const pNeg = Number(sent.p_neg || 0);
-    const highReturns = (a.signals?.total_returns || 0) > 3;
-    const riskLevel = inv.risk_flag || pNeg > 0.4
-      ? "High"
-      : highReturns || pNeg > 0.2
-      ? "Medium"
-      : "Low";
+    const returns = Number(a.signals?.total_returns || 0);
+    const returnRate = a.signals?.return_rate ?? null;
+    // Use return rate when available — consistent with backend guardrails.
+    // Raw count alone is unreliable; 3 returns on 10,000 sold ≠ 3 returns on 50 sold.
+    const highReturnRisk = returnRate != null ? (returns >= 5 && returnRate >= 0.05) : returns >= 5;
+    const modReturnRisk  = returnRate != null ? returnRate >= 0.03                   : returns >= 3;
+    const stockStatus = String(inv.stock_status || "unknown").toLowerCase();
+    // Risk levels aligned with backend _deterministic_risk and _suggest_action:
+    //   High   → stockout risk, very high negative sentiment (≥40%), or inventory hard-flag (non-overstocked)
+    //   Medium → low stock, overstocked, moderate p_neg (≥20%), or moderate return rate (≥3%)
+    //   Low    → all signals acceptable
+    const riskLevel =
+      stockStatus === "stockout_risk" || pNeg >= 0.40 || (inv.risk_flag && stockStatus !== "overstocked")
+        ? "High"
+        : modReturnRisk || pNeg >= 0.20 || stockStatus === "low_stock" || stockStatus === "overstocked"
+        ? "Medium"
+        : "Low";
     const retrieval = Number(a.evidence?.retrieval_score ?? 0);
     const retrievalSimilarity = Math.max(0, Math.min(100, Math.round(retrieval * 100)));
     const evidenceSnippet = a.evidence?.points?.[0]?.text || "";
@@ -450,6 +681,7 @@ function buildPlansFromRanked(ranked) {
     const actionBadgeColor = ACTION_BADGE_COLORS[finalActionType] || "bg-slate-500/20 text-slate-300 border-slate-500/40";
     const confidence = computeConfidence(a, pct);
     const whyBullets = buildWhyBullets(a, pct, finalActionType);
+    const supportingSignals = buildSupportingSignals(a);
 
     // Caution notes: when the final action still carries notable contradictions
     const cautionNotes = [];
@@ -483,11 +715,11 @@ function buildPlansFromRanked(ranked) {
       whyBullets,
       cautionNotes,
       overrideNote,
+      supportingSignals,
       finalActionType,
       suggestedAction,
       retrievalSimilarity,
       retrievalScore: retrieval,
-      evidenceSnippet: evidenceSnippet ? String(evidenceSnippet).slice(0, 240) : "",
       riskLevel,
     };
   });
@@ -676,6 +908,8 @@ export default function App() {
       postJson("/retrieval/preview", {
         goal: scopedGoalForPreview,
         top_k_preview: 5,
+        selected_category: selectedCategory || "",
+        selected_subcategory: selectedSubcategory || "",
         constraints: {
           max_abs_price_change_pct: maxAbsPriceChangePct,
           objective,
@@ -757,6 +991,8 @@ export default function App() {
       owner_id: DEFAULT_OWNER_ID,
       horizon_days: horizonDays,
       top_n_actions: topNActions,
+      selected_category: selectedCategory || "",
+      selected_subcategory: selectedSubcategory || "",
       constraints: {
         max_abs_price_change_pct: maxAbsPriceChangePct,
         objective,
@@ -935,7 +1171,7 @@ export default function App() {
       setLatestAdvocate(data.advocate);
       setLatestCritic(data.critic);
       if (data.advocate && data.critic) {
-        playDebateTurns(advCritTurns(data.advocate, data.critic, 1));
+        playDebateTurns(advCritTurns(data.advocate, data.critic, 1, buildCandidateMap(pipelineResult?.enriched_candidates)));
       }
     }).catch(() => {
       if (!cancelled) setLlmRunningLabel("");
@@ -973,7 +1209,7 @@ export default function App() {
       setLatestAdvocate(data.advocate);
       setLatestCritic(data.critic);
       setLlmRunningLabel("");
-      playDebateTurns(advCritTurns(data.advocate, data.critic, nextRound));
+      playDebateTurns(advCritTurns(data.advocate, data.critic, nextRound, buildCandidateMap(pipelineResult?.enriched_candidates)));
     } catch {
       setLlmRunningLabel("");
       addErrorTurn("Round failed — LLM may be unavailable. Try again.");
@@ -1019,7 +1255,7 @@ export default function App() {
       setLatestAdvocate(data.advocate);
       setLatestCritic(data.critic);
       setLlmRunningLabel("");
-      playDebateTurns(advCritTurns(data.advocate, data.critic, nextRound));
+      playDebateTurns(advCritTurns(data.advocate, data.critic, nextRound, buildCandidateMap(pipelineResult?.enriched_candidates)));
     } catch {
       setLlmRunningLabel("");
       addErrorTurn("Round failed — LLM may be unavailable. Try again.");
@@ -1056,7 +1292,7 @@ export default function App() {
         const lines = actions.map((a, i) => {
           const pct = Number(a.recommended_price_change_pct || 0);
           const type = String(a.action_type || "reprice").toLowerCase();
-          const pid = `…${String(a.product_id).slice(-6)}`;
+          const pid = String(a.product_id);
           let decision = type;
           if (type === "reprice") decision = Math.abs(pct) < 0.01 ? "hold price" : (pct > 0 ? `increase price +${pct.toFixed(2)}%` : `decrease price ${Math.abs(pct).toFixed(2)}%`);
           if (type === "investigate") decision = "investigate before repricing";
