@@ -226,9 +226,21 @@ def main() -> None:
     b = float(args.policy_bound)
     pred = b * np.tanh(pred / b)
 
-    out = pd.DataFrame({"product_id": df["product_id"].astype(str), "predicted_price_change_pct": pred})
+    # Carry through catalog context columns used for gap-proportional magnitude at runtime.
+    # price_percentile_in_subcategory: used to compute magnitude (distance from subcategory median).
+    # current_price: the catalog list price at cache build time.
+    out = pd.DataFrame({
+        "product_id": df["product_id"].astype(str),
+        "predicted_price_change_pct": pred,
+        "price_percentile_in_subcategory": pd.to_numeric(df.get("price_percentile_in_subcategory", np.nan), errors="coerce"),
+        "current_price": pd.to_numeric(df["price"], errors="coerce"),
+    })
     # If table contains multiple rows per product_id (should not, but safe), average.
-    out = out.groupby("product_id", as_index=False).agg(predicted_price_change_pct=("predicted_price_change_pct", "mean"))
+    out = out.groupby("product_id", as_index=False).agg(
+        predicted_price_change_pct=("predicted_price_change_pct", "mean"),
+        price_percentile_in_subcategory=("price_percentile_in_subcategory", "first"),
+        current_price=("current_price", "first"),
+    )
 
     out_path = out_dir / "pricing_cache.parquet"
     out.to_parquet(out_path, index=False)

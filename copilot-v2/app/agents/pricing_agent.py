@@ -37,10 +37,28 @@ class PricingAgent:
         cache_path = root / "caches" / snapshot_id / "pricing" / "pricing_cache.parquet"
         if not cache_path.exists():
             raise FileNotFoundError(f"Pricing cache not found at {cache_path}. Run precompute_pricing.py first.")
-        df = pd.read_parquet(cache_path, columns=["product_id", "predicted_price_change_pct"])
-        self._cache: dict[str, float] = dict(
-            zip(df["product_id"].astype(str), df["predicted_price_change_pct"].astype(float))
-        )
+        avail_cols = pd.read_parquet(cache_path, columns=None).columns.tolist()
+        read_cols = ["product_id", "predicted_price_change_pct"]
+        for extra in ("price_percentile_in_subcategory", "current_price"):
+            if extra in avail_cols:
+                read_cols.append(extra)
+        df = pd.read_parquet(cache_path, columns=read_cols)
+        self._cache: dict[str, dict] = {}
+        for _, row in df.iterrows():
+            pid = str(row["product_id"])
+            self._cache[pid] = {
+                "predicted_price_change_pct": float(row["predicted_price_change_pct"]),
+                "price_percentile_in_subcategory": (
+                    float(row["price_percentile_in_subcategory"])
+                    if "price_percentile_in_subcategory" in row.index and pd.notna(row["price_percentile_in_subcategory"])
+                    else None
+                ),
+                "current_price": (
+                    float(row["current_price"])
+                    if "current_price" in row.index and pd.notna(row["current_price"])
+                    else None
+                ),
+            }
 
     @property
     def cache_source(self) -> str:
@@ -50,5 +68,12 @@ class PricingAgent:
         pid = str(product_id)
         if pid not in self._cache:
             return {"product_id": pid, "predicted_price_change_pct": None, "found": False}
-        return {"product_id": pid, "predicted_price_change_pct": self._cache[pid], "found": True}
+        entry = self._cache[pid]
+        return {
+            "product_id": pid,
+            "predicted_price_change_pct": entry["predicted_price_change_pct"],
+            "price_percentile_in_subcategory": entry.get("price_percentile_in_subcategory"),
+            "current_price": entry.get("current_price"),
+            "found": True,
+        }
 

@@ -744,6 +744,7 @@ export default function App() {
   const [dataBackend, setDataBackend] = useState(null);
   const [plans, setPlans] = useState([]);
   const [resultsMessage, setResultsMessage] = useState("");
+  const [systemNote, setSystemNote] = useState("");
   const [pipelineResult, setPipelineResult] = useState(null);
   const [llmRunningLabel, setLlmRunningLabel] = useState("");
   const [clarifyingQuestion, setClarifyingQuestion] = useState("");
@@ -1346,6 +1347,24 @@ export default function App() {
             "No ranked plans were returned for this query. This can happen when retrieval finds no strong matches (or filters remove all candidates). Try adding more product/category detail to your goal, or relax constraints."
           );
         }
+        // Fix C: surface inventory signal mismatches between the stated objective and actual data.
+        const actions = data.ranked_actions || [];
+        let note = "";
+        if (actions.length > 0) {
+          const allHealthy = actions.every(
+            (a) => !["overstocked", "low_stock", "stockout_risk"].includes(
+              a.inventory?.stock_status || "healthy"
+            )
+          );
+          if (objective === "clear_inventory" && allHealthy) {
+            note =
+              "Note: no overstocked SKUs were found in this subcategory — all retrieved products show healthy inventory. Recommendations are based on current stock levels. If you are managing a specific overstock situation, check that inventory data is up to date or try a broader scope.";
+          } else if (objective === "avoid_stockouts" && allHealthy) {
+            note =
+              "Note: all retrieved products show healthy inventory levels — no stockout or low-stock risk was detected. The system recommends holding current pricing to protect stock. If you have specific SKUs at risk, verify inventory data or narrow your scope.";
+          }
+        }
+        setSystemNote(note);
         setCanViewResults(true);
       });
     } catch {
@@ -1376,6 +1395,7 @@ export default function App() {
     setSaveStatusMessage("");
     setPlans([]);
     setResultsMessage("");
+    setSystemNote("");
     setPipelineResult(null);
     setRunContext(null);
     setLatestAdvocate(null);
@@ -1596,6 +1616,7 @@ export default function App() {
         <ResultsView
           plans={plans}
           resultsMessage={resultsMessage}
+          systemNote={systemNote}
           runContext={runContext}
           portfolioSummary={computePortfolioSummary(pipelineResult?.enriched_candidates, objective)}
           selectedPlanId={selectedPlanId}

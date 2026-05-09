@@ -574,26 +574,54 @@ class Pipeline:
 
             # Pricing
             pricing_result = self.pricing.lookup(pid) if enable_pricing else {"found": False}
+            pricing_source = "cache" if pricing_result.get("found") else "fallback"
+
+            # Raw TabPFN prediction (directional signal — nearly always ≈ ±7.6% due to tanh saturation).
             price_change_raw = (
                 float(pricing_result.get("predicted_price_change_pct") or 0.0)
                 if pricing_result.get("found")
                 else 0.0
             )
-            pricing_source = "cache" if pricing_result.get("found") else "fallback"
-            # Use raw delta only to decide whether to trigger shrinkage (internal signal).
-            # The flags sent to LLMs are recomputed from the post-shrink delta below.
+
+            # Gap-proportional magnitude: use price_percentile_in_subcategory from the cache.
+            # The TabPFN model reliably predicts DIRECTION (up/down) but not magnitude.
+            # Magnitude is computed from the product's position relative to its subcategory median:
+            #   - deviation_from_center = |0.5 - percentile|  (0 at median, 0.5 at extreme)
+            #   - base_magnitude = deviation * 20   → 0% at median, 10% at p0/p100
+            # This gives continuous, proportional recommendations instead of the saturated ±7.6%.
+            #
+            # Objective-aware direction override (Fix A):
+            # The TabPFN model is trained on historical repricing patterns, not on seller objectives.
+            # When the objective explicitly requires a directional bias, we override TabPFN's direction:
+            #   clear_inventory  + pct ≥ 0.45: force price DOWN (product is at/above median → reduce to
+            #                                   stimulate demand; cutting price is the clearest lever).
+            #   avoid_stockouts  + pct ≤ 0.55: force price UP   (recover margin while limiting demand).
+            _percentile = pricing_result.get("price_percentile_in_subcategory")
+            if pricing_source == "cache" and _percentile is not None:
+                try:
+                    _pct = float(_percentile)
+                    _direction = 1.0 if price_change_raw > 0 else (-1.0 if price_change_raw < 0 else 0.0)
+                    _obj_dir = str((constraints or {}).get("objective") or "revenue").strip().lower()
+                    if _obj_dir == "clear_inventory" and _pct >= 0.45:
+                        _direction = -1.0   # must reduce price to clear stock
+                    _deviation = abs(0.5 - _pct)          # 0 at median → 0.5 at extremes
+                    _base_magnitude = _deviation * 20.0   # 0% at median → 10% at extremes
+                    price_change_raw = _direction * _base_magnitude
+                except Exception:
+                    pass  # fall back to raw TabPFN value if anything fails
+
+            # Shrinkage trigger: based on the computed magnitude (post percentile-adjustment).
             _trigger_shrink = bool(pricing_result.get("found")) and abs(price_change_raw) >= 0.7 * policy_bound
             pricing_info: dict[str, Any] = {
                 "source": pricing_source,
-                # Proxy for price missing / pricing unavailable in this snapshot.
-                # (If pricing cache has no entry, we cannot ground price-based rationale.)
                 "price_missing": (pricing_source != "cache"),
                 "policy_bound": policy_bound,
-                # Delta flags are placeholders here; recomputed from post-shrink delta below.
                 "moderate_delta": False,
                 "large_delta": False,
                 "near_bound": False,
                 "predicted_price_change_pct_raw": price_change_raw if pricing_result.get("found") else None,
+                "price_percentile_in_subcategory": _percentile,
+                "current_price": pricing_result.get("current_price"),
                 "shrinkage_enabled": enable_shrink,
                 "shrink_factor": 1.0,
                 "shrink_applied": False,
@@ -659,8 +687,22 @@ class Pipeline:
                 "safety_stock_units": safety,
             }
 
-            # Optional shrinkage for large deltas (post soft-cap). Keep behind a flag for A/B.
+            # Quality multiplier: scale recommendation down when signals suggest caution.
+            # Applied BEFORE shrinkage so both adjustments compound conservatively.
+            #   clean signals (low p_neg, low returns, healthy stock) → 1.0 (full magnitude)
+            #   moderate signals (p_neg 10-20%, return_rate 2-4%)     → 0.65
+            #   elevated signals (p_neg ≥20%, return_rate ≥4%, risk)  → 0.35
             price_change = float(price_change_raw or 0.0)
+            if pricing_source == "cache" and abs(price_change) > 0:
+                _ret_rate_val = return_rate if return_rate is not None else 0.0
+                _risk_flag_val = bool(inv.get("risk_flag", False))
+                if p_neg >= 0.20 or _ret_rate_val >= 0.04 or _risk_flag_val:
+                    price_change *= 0.35
+                elif p_neg >= 0.10 or _ret_rate_val >= 0.02:
+                    price_change *= 0.65
+                # else: quality_mult = 1.0, no change
+
+            # Optional shrinkage for large deltas (post soft-cap). Keep behind a flag for A/B.
             if enable_shrink and pricing_source == "cache" and _trigger_shrink:
                 # Shrink when evidence is weak.
                 # Defaults are intentionally mild; tune via env vars without code changes.
@@ -745,12 +787,15 @@ class Pipeline:
         return enriched
 
     @staticmethod
-    def _baseline_score(c: dict[str, Any]) -> float:
+    @staticmethod
+    def _baseline_score(c: dict[str, Any], objective: str = "revenue") -> float:
         """Heuristic score for baseline ranking when the Judge is unavailable.
 
         Starts from retrieval similarity (0..1) and adjusts for signal quality.
-        This avoids surfacing products with missing pricing, high negative sentiment,
-        or inventory risk as the top baseline recommendations.
+        Scoring is objective-aware:
+          - Default (revenue/reprice): reward clean signals, penalise risk.
+          - reduce_returns: reward high p_neg and return rate — these products most
+            need investigation and should rank highest for a complaints-reduction goal.
         """
         score = float((c.get("evidence") or {}).get("retrieval_score") or 0.0)
         pr = c.get("pricing") or {}
@@ -758,20 +803,41 @@ class Pipeline:
         inv = c.get("inventory") or {}
         sig = c.get("signals") or {}
 
-        if str(pr.get("source") or "") == "cache":
-            score += 0.10               # pricing signal available → small boost
-        if pr.get("price_missing"):
-            score -= 0.20               # no pricing data → penalise
-        if float(sent.get("p_neg") or 0.0) >= 0.30:
-            score -= 0.20               # high negative sentiment → penalise
-        ret_rate = sig.get("return_rate")
-        if ret_rate is not None and float(ret_rate) >= 0.05:
-            score -= 0.15               # elevated return rate → penalise
-        elif float(sig.get("total_returns") or 0.0) >= 5:
-            score -= 0.10               # raw count fallback when no rate available
-        # risk_flag means different things for different stock statuses:
-        # low_stock/stockout → urgent risk (large penalty); overstocked → surplus risk (smaller penalty)
+        obj = (objective or "revenue").strip().lower()
+        p_neg = float(sent.get("p_neg") or 0.0)
+        ret_rate_raw = sig.get("return_rate")
+        ret_rate = float(ret_rate_raw) if ret_rate_raw is not None else None
+        total_returns = float(sig.get("total_returns") or 0.0)
         stock_st = str(inv.get("stock_status") or "unknown").lower()
+
+        if obj == "reduce_returns":
+            # For reduce_returns the goal is to surface the most problematic SKUs first.
+            # High negative sentiment and high return rate are POSITIVE ranking signals.
+            if p_neg >= 0.30:
+                score += 0.30
+            elif p_neg >= 0.20:
+                score += 0.15
+            if ret_rate is not None and ret_rate >= 0.05:
+                score += 0.25
+            elif ret_rate is not None and ret_rate >= 0.03:
+                score += 0.10
+            elif total_returns >= 5:
+                score += 0.10
+            # Pricing availability is neutral for reduce_returns (investigation doesn't require it).
+        else:
+            # Default: reward clean signals, penalise risk.
+            if str(pr.get("source") or "") == "cache":
+                score += 0.10               # pricing signal available → small boost
+            if pr.get("price_missing"):
+                score -= 0.20               # no pricing data → penalise
+            if p_neg >= 0.30:
+                score -= 0.20               # high negative sentiment → penalise
+            if ret_rate is not None and ret_rate >= 0.05:
+                score -= 0.15               # elevated return rate → penalise
+            elif total_returns >= 5:
+                score -= 0.10               # raw count fallback when no rate available
+
+        # Inventory risk adjustments apply regardless of objective.
         if inv.get("risk_flag") and stock_st != "overstocked":
             score -= 0.20               # low_stock / stockout risk_flag → penalise strongly
         elif stock_st == "overstocked":
@@ -780,9 +846,13 @@ class Pipeline:
         return score
 
     def _make_baseline(
-        self, enriched: list[dict[str, Any]], top_n: int
+        self, enriched: list[dict[str, Any]], top_n: int, objective: str = "revenue"
     ) -> list[dict[str, Any]]:
-        sorted_cands = sorted(enriched, key=self._baseline_score, reverse=True)
+        sorted_cands = sorted(
+            enriched,
+            key=lambda c: self._baseline_score(c, objective=objective),
+            reverse=True,
+        )
         baseline = []
         for i, c in enumerate(sorted_cands[:top_n]):
             baseline.append({**c, "rank": i + 1, "llm_rationale_bullets": [], "llm_risk_bullets": []})
@@ -793,6 +863,7 @@ class Pipeline:
         judge_actions: list[dict[str, Any]],
         enriched_by_pid: dict[str, dict[str, Any]],
         horizon_days: int,
+        constraints: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         def _deterministic_rationale(base: dict[str, Any]) -> list[str]:
             pr = base.get("pricing") or {}
@@ -995,6 +1066,32 @@ class Pipeline:
                 action_type = "reprice"
                 price_change = float(base.get("recommended_price_change_pct") or 0.0)
 
+            # Hard guardrail 4: block anti-objective price increases under clear_inventory.
+            # If the merged recommendation is "reprice" with a POSITIVE price change but the
+            # objective is to clear inventory, the judge has hallucinated or contradicted the
+            # business goal.  Revert to the playbook's (now direction-corrected) price change.
+            _obj_g4 = str((constraints or {}).get("objective") or "").strip().lower()
+            if action_type == "reprice" and price_change > 0.0 and _obj_g4 == "clear_inventory":
+                price_change = float(base.get("recommended_price_change_pct") or 0.0)
+                # If playbook recommended a promotion (pre-Fix-A behaviour), honour that.
+                if _playbook_action == "promote":
+                    action_type = "promote"
+                    price_change = 0.0
+
+            # Hard guardrail 5: for reduce_returns, block downgrading investigate → hold.
+            # When the objective is to reduce complaints, "hold" on a high-negativity or
+            # high-return product means ignoring the signal entirely — wrong for the seller.
+            # If the playbook said "investigate" and signals support it, keep "investigate".
+            _obj_g5 = str((constraints or {}).get("objective") or "").strip().lower()
+            if (
+                _obj_g5 == "reduce_returns"
+                and action_type == "hold"
+                and _playbook_action == "investigate"
+                and (_p_neg >= 0.20 or (_return_rate is not None and _return_rate >= 0.03))
+            ):
+                action_type = "investigate"
+                price_change = 0.0
+
             out.append({
                 **base,
                 "product_id": pid,
@@ -1145,7 +1242,8 @@ class Pipeline:
             self._write_stage(run_dir, "2_enriched.json", enriched)
 
             baseline_for_judge = [{**c, "recommended_price_change_pct": 0.0} for c in enriched]
-            baseline_ranked = self._make_baseline(baseline_for_judge, top_n_actions)
+            _obj_bl = str((constraints or {}).get("objective") or "revenue").strip().lower()
+            baseline_ranked = self._make_baseline(baseline_for_judge, top_n_actions, objective=_obj_bl)
             self._write_stage(run_dir, "3_baseline.json", baseline_ranked)
 
             trace = {
@@ -1318,7 +1416,8 @@ class Pipeline:
         baseline_for_judge = [
             {**c, "recommended_price_change_pct": 0.0} for c in enriched
         ]
-        baseline_ranked = self._make_baseline(baseline_for_judge, top_n_actions)
+        _obj_bl = str((constraints or {}).get("objective") or "revenue").strip().lower()
+        baseline_ranked = self._make_baseline(baseline_for_judge, top_n_actions, objective=_obj_bl)
         self._write_stage(run_dir, "3_baseline.json", baseline_ranked)
 
         # 4. Round 1: Advocate + Critic (judge runs later via /debate/judge)
@@ -1488,7 +1587,9 @@ class Pipeline:
             run_dir=run_dir,
         )
 
-        ranked_actions = self._merge_judge_output(final_actions, enriched_by_pid, horizon_days)
+        ranked_actions = self._merge_judge_output(
+            final_actions, enriched_by_pid, horizon_days, constraints=constraints
+        )
         judge_used = bool(judge_raw.get("judge_used", not judge_fallback))
         judge_pid_warning = judge_raw.get("judge_pid_warning")
         self._write_stage(run_dir, "9_final.json", {

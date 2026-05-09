@@ -58,6 +58,7 @@ function PortfolioSummary({ summary }) {
 export default function ResultsView({
   plans,
   resultsMessage = "",
+  systemNote = "",
   runContext = null,
   portfolioSummary = null,
   selectedPlanId,
@@ -130,6 +131,13 @@ export default function ResultsView({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {!!systemNote && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          <span className="shrink-0 text-amber-400">⚠</span>
+          <span>{systemNote}</span>
         </div>
       )}
 
