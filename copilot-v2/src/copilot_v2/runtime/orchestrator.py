@@ -10,7 +10,7 @@ from typing import Any
 import faiss
 import numpy as np
 import pandas as pd
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, models
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from copilot_v2.runtime.inventory_agent import InventoryAgentConfig, attach_inventory_to_ranked_actions
@@ -96,6 +96,27 @@ def _apply_prefix(s: str, prefix: str | None) -> str:
     return f"{prefix}{s}"
 
 
+def _load_sentence_transformer_model(model_name: str, *, device: str, max_seq_length: int) -> SentenceTransformer:
+    try:
+        model = SentenceTransformer(model_name, device=device)
+    except TypeError as e:
+        # Portable local snapshots may contain HF Transformer weights but miss
+        # SentenceTransformers pooling metadata. E5 uses mean pooling, so build
+        # the equivalent runtime model without requiring a metadata download.
+        if "Pooling.__init__" not in str(e) or "e5" not in model_name.lower():
+            raise
+        word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
+        pooling_model = models.Pooling(
+            word_embedding_model.get_word_embedding_dimension(),
+            pooling_mode_mean_tokens=True,
+            pooling_mode_cls_token=False,
+            pooling_mode_max_tokens=False,
+        )
+        model = SentenceTransformer(modules=[word_embedding_model, pooling_model], device=device)
+    model.max_seq_length = max_seq_length
+    return model
+
+
 def _load_retriever_from_index_meta(index_meta_path: Path) -> dict[str, Any]:
     meta = json.loads(index_meta_path.read_text(encoding="utf-8"))
     paths = meta["paths"]
@@ -109,11 +130,13 @@ def _load_retriever_from_index_meta(index_meta_path: Path) -> dict[str, Any]:
         return str((base_dir / pp).resolve())
 
     model_name = str(meta["model_name"])
-    # Allow forcing retrieval encoder device (useful for benchmarking or limited GPUs).
-    device = os.getenv("COPILOT_V2_RETRIEVER_DEVICE") or str(meta.get("device") or "")
-    if not device:
-        device = "cpu"
-    model = SentenceTransformer(model_name, device=device)
+    # Build-time metadata can say cuda; default to CPU for portable demo/runtime.
+    device = os.getenv("COPILOT_V2_RETRIEVER_DEVICE") or "cpu"
+    model = _load_sentence_transformer_model(
+        model_name,
+        device=device,
+        max_seq_length=int(meta.get("max_seq_length") or 384),
+    )
     index = faiss.read_index(_resolve(str(paths["faiss_index"])))
     corpus = pd.read_parquet(_resolve(str(paths["corpus_parquet"])))
     docs = corpus[str(meta.get("doc_col", "product_document"))].astype(str).tolist()

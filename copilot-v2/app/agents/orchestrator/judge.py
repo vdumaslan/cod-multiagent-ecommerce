@@ -78,10 +78,69 @@ def build_messages(
         if style == "structured_rationale"
         else ""
     )
+    slim_candidates = [
+        {
+            "product_id": c.get("product_id"),
+            "suggested_action": c.get("suggested_action"),
+            "current_action_type": c.get("action_type"),
+            "recommended_price_change_pct": c.get("recommended_price_change_pct", 0.0),
+            "pricing": {
+                "source": (c.get("pricing") or {}).get("source"),
+                "price_missing": (c.get("pricing") or {}).get("price_missing", False),
+                "large_delta": (c.get("pricing") or {}).get("large_delta", False),
+                "near_bound": (c.get("pricing") or {}).get("near_bound", False),
+                "policy_bound": (c.get("pricing") or {}).get("policy_bound"),
+            },
+            "sentiment": {
+                k: (c.get("sentiment") or {}).get(k)
+                for k in ("p_pos", "p_neu", "p_neg", "n_reviews")
+            },
+            "inventory": {
+                "stock_status": (c.get("inventory") or {}).get("stock_status"),
+                "risk_flag": (c.get("inventory") or {}).get("risk_flag"),
+            },
+            "signals": {
+                k: (c.get("signals") or {}).get(k)
+                for k in ("available_to_sell", "mean_daily_revenue", "total_returns")
+            },
+            "retrieval_score": (c.get("evidence") or {}).get("retrieval_score"),
+        }
+        for c in payload.get("candidates", [])
+    ]
+    slim_payload = {
+        "goal": payload.get("goal"),
+        "objective": (payload.get("constraints") or {}).get("objective", "revenue"),
+        "constraints": payload.get("constraints"),
+        "candidates": slim_candidates,
+        "baseline_actions": [
+            {
+                "product_id": a.get("product_id"),
+                "action_type": a.get("action_type"),
+                "recommended_price_change_pct": a.get("recommended_price_change_pct", 0.0),
+            }
+            for a in payload.get("baseline_actions", [])
+        ],
+        "advocate": payload.get("advocate") or {},
+        "critic": payload.get("critic") or {},
+    }
+    if payload.get("human_feedback"):
+        slim_payload["human_feedback"] = payload["human_feedback"]
+
     return [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": f"prompt_style={style} prompt_version={prompt_version}\n" + cot + few_shot + extra + "Return JSON only.\n"},
-        {"role": "user", "content": f"INPUT_JSON:\n{json.dumps(payload)}"},
+        {
+            "role": "user",
+            "content": (
+                f"prompt_style={style} prompt_version={prompt_version}\n"
+                + cot
+                + few_shot
+                + extra
+                + f"Return STRICT JSON only. No markdown, no prose, no summary. "
+                + f"Use key ranked_actions with max {top_k} items.\n"
+                + "Each item must include product_id, action_type, recommended_price_change_pct, rationale_bullets, risk_bullets.\n"
+            ),
+        },
+        {"role": "user", "content": f"INPUT_JSON:\n{json.dumps(slim_payload)}"},
     ]
 
 

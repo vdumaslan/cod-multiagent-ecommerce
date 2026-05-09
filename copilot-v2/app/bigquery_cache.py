@@ -81,10 +81,31 @@ def _query_rows(cfg: BigQueryCacheConfig, table_id: str, columns: list[str]) -> 
     return [dict(row.items()) for row in rows]
 
 
-def load_pricing_cache(snapshot_id: str) -> dict[str, float]:
+def _table_columns(cfg: BigQueryCacheConfig, table_id: str) -> set[str]:
+    table = _client(cfg).get_table(f"{cfg.project_id}.{cfg.dataset}.{table_id}")
+    return {field.name for field in table.schema}
+
+
+def load_pricing_cache(snapshot_id: str) -> dict[str, dict[str, float | None]]:
     cfg = BigQueryCacheConfig.from_env(snapshot_id)
-    rows = _query_rows(cfg, "pricing_cache", ["product_id", "predicted_price_change_pct"])
-    return {str(r["product_id"]): float(r["predicted_price_change_pct"]) for r in rows}
+    available = _table_columns(cfg, "pricing_cache")
+    columns = ["product_id", "predicted_price_change_pct"]
+    for extra in ("price_percentile_in_subcategory", "current_price"):
+        if extra in available:
+            columns.append(extra)
+    rows = _query_rows(cfg, "pricing_cache", columns)
+    return {
+        str(r["product_id"]): {
+            "predicted_price_change_pct": float(r["predicted_price_change_pct"]),
+            "price_percentile_in_subcategory": (
+                float(r["price_percentile_in_subcategory"])
+                if r.get("price_percentile_in_subcategory") is not None
+                else None
+            ),
+            "current_price": float(r["current_price"]) if r.get("current_price") is not None else None,
+        }
+        for r in rows
+    }
 
 
 def load_sentiment_cache(snapshot_id: str) -> dict[str, dict[str, float]]:

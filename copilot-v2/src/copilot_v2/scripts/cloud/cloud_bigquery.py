@@ -423,7 +423,7 @@ def upload_snapshot_table(
         CREATE OR REPLACE TABLE {backtick_table(cfg, temp_next)} AS
         SELECT * FROM {backtick_table(cfg, target)}
         WHERE snapshot_id != @snapshot_id
-        UNION ALL
+        FULL OUTER UNION ALL BY NAME
         {new_snapshot_select}
         """
     else:

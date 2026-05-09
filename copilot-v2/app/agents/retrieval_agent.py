@@ -12,6 +12,7 @@ The product corpus is never re-encoded at runtime.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ class RetrievalConfig:
     use_prefixes: bool = USE_PREFIXES
     top_k: int = 10
     min_score: float = 0.0
+    device: str = "cpu"
 
 
 @dataclass
@@ -51,9 +53,33 @@ class RetrievalAgent:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer, models
 
-        self._model = SentenceTransformer(self.config.model_name)
+        device = (
+            os.getenv("COPILOT_RETRIEVAL_DEVICE")
+            or os.getenv("COPILOT_V2_RETRIEVER_DEVICE")
+            or self.config.device
+            or "cpu"
+        )
+        try:
+            self._model = SentenceTransformer(self.config.model_name, device=device)
+        except TypeError as e:
+            # Some local HF cache snapshots can have the Transformer weights but miss
+            # the SentenceTransformers pooling config. E5 uses mean pooling, so build
+            # the equivalent runtime model without forcing a metadata download.
+            if "Pooling.__init__" not in str(e) or "e5" not in self.config.model_name.lower():
+                raise
+            word_embedding_model = models.Transformer(
+                self.config.model_name,
+                max_seq_length=self.config.max_seq_length,
+            )
+            pooling_model = models.Pooling(
+                word_embedding_model.get_word_embedding_dimension(),
+                pooling_mode_mean_tokens=True,
+                pooling_mode_cls_token=False,
+                pooling_mode_max_tokens=False,
+            )
+            self._model = SentenceTransformer(modules=[word_embedding_model, pooling_model], device=device)
         self._model.max_seq_length = self.config.max_seq_length
 
     def load_index(self) -> bool:

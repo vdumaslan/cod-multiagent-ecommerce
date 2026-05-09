@@ -1,4 +1,4 @@
-"""Main entry point: wire retrieval → specialist enrichment → optional ACJ debate."""
+"""Main entry point: wire retrieval -> specialist enrichment -> optional ACJ debate."""
 from __future__ import annotations
 
 import difflib
@@ -100,7 +100,7 @@ class Pipeline:
         return self._catalog_summary_cache
 
     def catalog_facets(self) -> dict[str, Any]:
-        """Return category → subcategory facets (cached) for guided UI filtering."""
+        """Return category -> subcategory facets (cached) for guided UI filtering."""
         if self._catalog_facets_cache is not None:
             return self._catalog_facets_cache
 
@@ -208,9 +208,9 @@ class Pipeline:
         """Rewrite a broad business goal into a product-oriented retrieval query.
 
         Priority order (deterministic first, LLM last):
-          1. selected_subcategory from UI  →  most specific, use directly
-          2. selected_category from UI     →  broader but still product-scoped
-          3. heuristic / LLM rewrite       →  last resort for free-text goals
+          1. selected_subcategory from UI  ->  most specific, use directly
+          2. selected_category from UI     ->  broader but still product-scoped
+          3. heuristic / LLM rewrite       ->  last resort for free-text goals
 
         This keeps retrieval stable for demos and avoids FAISS receiving
         business-strategy language like "safe repricing and targeted promotions".
@@ -218,19 +218,20 @@ class Pipeline:
         goal = str(goal or "").strip()
         original_goal = goal
 
-        # ── Priority 1: UI-selected subcategory ─────────────────────────────────
+        # Priority 1: UI-selected subcategory
         sub = str(selected_subcategory or "").strip()
         cat = str(selected_category or "").strip()
         if sub:
+            retrieval_query = f"{cat} {sub} products" if cat else sub
             return {
                 "ok": True,
                 "used": True,
                 "original_goal": original_goal,
-                "retrieval_query": sub,
+                "retrieval_query": retrieval_query,
                 "source": "selected_subcategory",
-                "notes": f"Retrieval scoped to selected subcategory: '{sub}'",
+                "notes": f"Retrieval scoped to selected subcategory: '{retrieval_query}'",
             }
-        # ── Priority 2: UI-selected category ────────────────────────────────────
+        # Priority 2: UI-selected category
         if cat:
             return {
                 "ok": True,
@@ -240,10 +241,10 @@ class Pipeline:
                 "source": "selected_category",
                 "notes": f"Retrieval scoped to selected category: '{cat}'",
             }
-        # ── Priority 3: Deterministic "for X" extraction ─────────────────────────
+        # Priority 3: Deterministic "for X" extraction
         # Done BEFORE the LLM-enabled flag so it always fires regardless of RL arm config.
-        # "reduce returns for kitchen storage products" → "kitchen storage products"
-        # "increase sales for Bed Frames with safe repricing" → "bed frames"
+        # "reduce returns for kitchen storage products" -> "kitchen storage products"
+        # "increase sales for Bed Frames with safe repricing" -> "bed frames"
         if goal:
             _goal_l_pre = goal.lower()
             _broad_markers_pre = [
@@ -333,6 +334,20 @@ class Pipeline:
         # Strip UI-appended scope hint before broad-goal analysis so it doesn't
         # inflate the word count and bypass the query rewrite.
         goal_for_logic = re.sub(r"\s*\(scope:[^)]*\)", "", goal_fixed).strip()
+        scope_match = re.search(r"\(scope:\s*([^)]+)\)", goal_fixed, flags=re.IGNORECASE)
+        scope_leaf = ""
+        scope_query = ""
+        if scope_match:
+            scope_parts = [
+                part.strip()
+                for part in re.split(r"\s*(?:/|>|\\|\|)\s*", scope_match.group(1))
+                if part.strip()
+            ]
+            scope_leaf = scope_parts[-1] if scope_parts else ""
+            if len(scope_parts) >= 2:
+                scope_query = f"{scope_parts[0]} {scope_parts[-1]} products"
+            elif scope_leaf:
+                scope_query = f"{scope_leaf} products"
 
         # Heuristic: only rewrite when the goal looks broad/strategy-level.
         broad_markers = [
@@ -344,26 +359,39 @@ class Pipeline:
             "clear inventory", "avoid stockouts", "prevent stockouts",
         ]
         goal_l = goal_for_logic.lower()
+        has_broad_marker = any(m in goal_l for m in broad_markers)
+        if scope_leaf and has_broad_marker:
+            # UI scope is already a concrete catalog target; do not let the LLM
+            # block the demo by asking for specific SKUs before retrieval.
+            return {
+                "ok": True,
+                "used": True,
+                "original_goal": original_goal,
+                "retrieval_query": scope_query,
+                "source": "scope_hint",
+                "clarifying_question": "",
+                "notes": f"Scoped retrieval query from selected catalog: {scope_query}",
+            }
         # Detect goals that already name a product / category (e.g. "grow revenue for Baking Cups").
-        # Use {1,} (≥2 chars total) so short product names like "Bed", "Rug", "Mop" are included.
+        # Use {1,} (>=2 chars total) so short product names like "Bed", "Rug", "Mop" are included.
         has_specific_for_phrase = bool(
             re.search(r"\bfor\s+[a-z0-9][a-z0-9&'\\-]{1,}(?:\s+[a-z0-9][a-z0-9&'\\-]{1,}){0,4}\b", goal_l)
         )
         def _passthrough() -> dict[str, object]:
             if typo_fixes and goal_fixed != original_goal:
-                note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
+                note = "; ".join([f"{f['from']} -> {f['to']}" for f in typo_fixes])
                 return {"ok": True, "used": True, "original_goal": original_goal, "retrieval_query": goal_fixed, "notes": f"Typo corrected: {note}"}
             return {"ok": True, "used": False, "original_goal": original_goal, "retrieval_query": original_goal}
 
-        # "for X" phrase found — but if the goal also contains broad business markers, the
+        # "for X" phrase found - but if the goal also contains broad business markers, the
         # product term (after "for") is the right retrieval query, NOT the full sentence.
-        # e.g. "reduce returns for kitchen storage products" → retrieval_query="kitchen storage products"
-        # e.g. "grow revenue for Baking Cups" (pure product goal, no jargon) → passthrough
+        # e.g. "reduce returns for kitchen storage products" -> retrieval_query="kitchen storage products"
+        # e.g. "grow revenue for Baking Cups" (pure product goal, no jargon) -> passthrough
         if has_specific_for_phrase:
             goal_has_broad = any(m in goal_l for m in broad_markers)
             if goal_has_broad:
                 # Extract up to 3 clean product-word tokens (no spaces in each token).
-                # Stop before common modifier words so "coffee makers safely" → "coffee makers".
+                # Stop before common modifier words so "coffee makers safely" -> "coffee makers".
                 _STOP = r"(?:with|and|or|while|before|after|using|safely|quickly|carefully|targeted|promotions?|repricing|discounts?)"
                 m_for = re.search(
                     rf"\bfor\s+((?:(?!{_STOP}\b)[a-z0-9][a-z0-9&'\\-]{{1,}})(?:\s+(?:(?!{_STOP}\b)[a-z0-9][a-z0-9&'\\-]{{1,}})){{0,2}})\b",
@@ -378,11 +406,11 @@ class Pipeline:
                         "source": "extracted_for_phrase",
                         "notes": f"Business goal detected; retrieval scoped to product term: '{product_term}'",
                     }
-            # Pure product phrase (no broad jargon) and short enough → passthrough
+            # Pure product phrase (no broad jargon) and short enough -> passthrough
             if len(goal_for_logic.split()) <= 7:
                 return _passthrough()
 
-        is_broad = any(m in goal_l for m in broad_markers) and len(goal_for_logic.split()) <= 20
+        is_broad = has_broad_marker and len(goal_for_logic.split()) <= 20
         if not is_broad:
             return _passthrough()
 
@@ -418,13 +446,13 @@ class Pipeline:
             rq = str(obj.get("retrieval_query") or "").strip()
             cq = str(obj.get("clarifying_question") or "").strip()
             notes = str(obj.get("notes") or "").strip()
-            # If rewriter returned both, treat as clarification — do not proceed with retrieval.
+            # If rewriter returned both, treat as clarification - do not proceed with retrieval.
             if rq and cq:
                 rq = ""
             if not rq and not cq:
                 cq = "What product category (or example SKU) are you trying to improve revenue for?"
             if typo_fixes and goal_fixed != original_goal:
-                note = "; ".join([f"{f['from']} → {f['to']}" for f in typo_fixes])
+                note = "; ".join([f"{f['from']} -> {f['to']}" for f in typo_fixes])
                 prefix = f"Typo corrected: {note}."
                 notes = f"{prefix} {notes}".strip()
             return {
@@ -484,7 +512,7 @@ class Pipeline:
         # Inventory hard signals first
         if inv == "stockout_risk":
             return "restock"
-        # low_stock → hold; risk_flag → hold UNLESS the product is overstocked.
+        # low_stock -> hold; risk_flag -> hold UNLESS the product is overstocked.
         # Overstocked products have risk_flag=True in the precompute (surplus risk),
         # but the right response is investigate/promote, not hold.
         if inv == "low_stock" or (risk_flag and inv != "overstocked"):
@@ -504,18 +532,18 @@ class Pipeline:
         # This ensures return/sentiment signals block reprice/promote even for grow_revenue.
         return_rate = self._compute_return_rate(total_returns, total_units_sold)
         if return_rate is not None:
-            # Hard investigate: ≥ 5 returns AND ≥ 5% rate.
+            # Hard investigate: >= 5 returns AND >= 5% rate.
             if total_returns >= 5 and return_rate >= 0.05:
                 return "investigate"
-            # Soft caution zone: ≥ 3 returns AND ≥ 3% rate.
+            # Soft caution zone: >= 3 returns AND >= 3% rate.
             # Returns at this level are unexplained-enough to warrant investigation before repricing,
-            # regardless of sentiment — ensures the same signal always produces the same starting action.
+            # regardless of sentiment - ensures the same signal always produces the same starting action.
             # The LLM judge can still override to "reprice" if evidence is strong; the UI will show
             # the override note so the seller understands why the recommendation changed.
             if total_returns >= 3 and return_rate >= 0.03:
                 return "investigate"
         else:
-            # No volume data — raw count ≥ 5 as a conservative fallback only.
+            # No volume data - raw count >= 5 as a conservative fallback only.
             if total_returns >= 5:
                 return "investigate"
 
@@ -533,7 +561,7 @@ class Pipeline:
             return "promote"
 
         # grow_revenue with healthy stock and clean signals: explicitly prefer reprice.
-        # (This is the same as the default fallthrough but makes the goal→action link reportable.)
+        # (This is the same as the default fallthrough but makes the goal->action link reportable.)
         if obj in ("revenue", "grow_revenue") and pricing_source == "cache" and not risk_flag:
             return "reprice"
 
@@ -576,7 +604,7 @@ class Pipeline:
             pricing_result = self.pricing.lookup(pid) if enable_pricing else {"found": False}
             pricing_source = "cache" if pricing_result.get("found") else "fallback"
 
-            # Raw TabPFN prediction (directional signal — nearly always ≈ ±7.6% due to tanh saturation).
+            # Raw TabPFN prediction (directional signal; nearly always about +/-7.6% due to tanh saturation).
             price_change_raw = (
                 float(pricing_result.get("predicted_price_change_pct") or 0.0)
                 if pricing_result.get("found")
@@ -587,13 +615,13 @@ class Pipeline:
             # The TabPFN model reliably predicts DIRECTION (up/down) but not magnitude.
             # Magnitude is computed from the product's position relative to its subcategory median:
             #   - deviation_from_center = |0.5 - percentile|  (0 at median, 0.5 at extreme)
-            #   - base_magnitude = deviation * 20   → 0% at median, 10% at p0/p100
-            # This gives continuous, proportional recommendations instead of the saturated ±7.6%.
+            #   - base_magnitude = deviation * 20   -> 0% at median, 10% at p0/p100
+            # This gives continuous, proportional recommendations instead of the saturated +/-7.6%.
             #
             # Objective-aware direction override (Fix A):
             # The TabPFN model is trained on historical repricing patterns, not on seller objectives.
             # When the objective explicitly requires a directional bias, we override TabPFN's direction:
-            #   clear_inventory  + pct ≥ 0.45: force price DOWN (product is at/above median → reduce to
+            #   clear_inventory  + pct >= 0.45: force price DOWN (product is at/above median -> reduce to
             #                                   stimulate demand; cutting price is the clearest lever).
             #   avoid_stockouts  + pct ≤ 0.55: force price UP   (recover margin while limiting demand).
             _percentile = pricing_result.get("price_percentile_in_subcategory")
@@ -604,8 +632,8 @@ class Pipeline:
                     _obj_dir = str((constraints or {}).get("objective") or "revenue").strip().lower()
                     if _obj_dir == "clear_inventory" and _pct >= 0.45:
                         _direction = -1.0   # must reduce price to clear stock
-                    _deviation = abs(0.5 - _pct)          # 0 at median → 0.5 at extremes
-                    _base_magnitude = _deviation * 20.0   # 0% at median → 10% at extremes
+                    _deviation = abs(0.5 - _pct)          # 0 at median -> 0.5 at extremes
+                    _base_magnitude = _deviation * 20.0   # 0% at median -> 10% at extremes
                     price_change_raw = _direction * _base_magnitude
                 except Exception:
                     pass  # fall back to raw TabPFN value if anything fails
@@ -689,9 +717,9 @@ class Pipeline:
 
             # Quality multiplier: scale recommendation down when signals suggest caution.
             # Applied BEFORE shrinkage so both adjustments compound conservatively.
-            #   clean signals (low p_neg, low returns, healthy stock) → 1.0 (full magnitude)
-            #   moderate signals (p_neg 10-20%, return_rate 2-4%)     → 0.65
-            #   elevated signals (p_neg ≥20%, return_rate ≥4%, risk)  → 0.35
+            #   clean signals (low p_neg, low returns, healthy stock) -> 1.0 (full magnitude)
+            #   moderate signals (p_neg 10-20%, return_rate 2-4%)     -> 0.65
+            #   elevated signals (p_neg >=20%, return_rate >=4%, risk) -> 0.35
             price_change = float(price_change_raw or 0.0)
             if pricing_source == "cache" and abs(price_change) > 0:
                 _ret_rate_val = return_rate if return_rate is not None else 0.0
@@ -787,14 +815,13 @@ class Pipeline:
         return enriched
 
     @staticmethod
-    @staticmethod
     def _baseline_score(c: dict[str, Any], objective: str = "revenue") -> float:
         """Heuristic score for baseline ranking when the Judge is unavailable.
 
         Starts from retrieval similarity (0..1) and adjusts for signal quality.
         Scoring is objective-aware:
           - Default (revenue/reprice): reward clean signals, penalise risk.
-          - reduce_returns: reward high p_neg and return rate — these products most
+          - reduce_returns: reward high p_neg and return rate; these products most
             need investigation and should rank highest for a complaints-reduction goal.
         """
         score = float((c.get("evidence") or {}).get("retrieval_score") or 0.0)
@@ -827,21 +854,21 @@ class Pipeline:
         else:
             # Default: reward clean signals, penalise risk.
             if str(pr.get("source") or "") == "cache":
-                score += 0.10               # pricing signal available → small boost
+                score += 0.10               # pricing signal available -> small boost
             if pr.get("price_missing"):
-                score -= 0.20               # no pricing data → penalise
+                score -= 0.20               # no pricing data -> penalise
             if p_neg >= 0.30:
-                score -= 0.20               # high negative sentiment → penalise
+                score -= 0.20               # high negative sentiment -> penalise
             if ret_rate is not None and ret_rate >= 0.05:
-                score -= 0.15               # elevated return rate → penalise
+                score -= 0.15               # elevated return rate -> penalise
             elif total_returns >= 5:
                 score -= 0.10               # raw count fallback when no rate available
 
         # Inventory risk adjustments apply regardless of objective.
         if inv.get("risk_flag") and stock_st != "overstocked":
-            score -= 0.20               # low_stock / stockout risk_flag → penalise strongly
+            score -= 0.20               # low_stock / stockout risk_flag -> penalise strongly
         elif stock_st == "overstocked":
-            score -= 0.05               # overstocked → slight penalty (still actionable via promote)
+            score -= 0.05               # overstocked -> slight penalty (still actionable via promote)
 
         return score
 
@@ -857,6 +884,134 @@ class Pipeline:
         for i, c in enumerate(sorted_cands[:top_n]):
             baseline.append({**c, "rank": i + 1, "llm_rationale_bullets": [], "llm_risk_bullets": []})
         return baseline
+
+    def _fallback_debate(
+        self,
+        *,
+        baseline_actions: list[dict[str, Any]],
+        constraints: dict[str, Any],
+        top_n_actions: int,
+        reason: str,
+        stage: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Deterministic advocate/critic output used when live Ollama is unavailable."""
+        top = [a for a in baseline_actions[:top_n_actions] if (a or {}).get("product_id")]
+        if not top:
+            advocate = {
+                "proposed_actions": [],
+                "key_claims": [
+                    "No candidate products matched this question strongly enough for debate.",
+                    "Use a shorter product-scoped query, then rerun the pipeline.",
+                ],
+                "concerns": ["The retrieval stage returned no actionable products."],
+            }
+            critic = {
+                "agreements": ["No action should be recommended without retrieved candidates."],
+                "disagreements": ["The current question is too broad or too verbose for the retrieval layer."],
+                "suggested_changes": [
+                    "Try: Reduce returns for Bathroom Accessory Sets.",
+                    "Keep the selected category and subcategory filters active.",
+                ],
+            }
+        else:
+            proposals = []
+            for a in top:
+                proposals.append({
+                    "product_id": str(a.get("product_id")),
+                    "action_type": str(a.get("action_type") or a.get("suggested_action") or "investigate").lower(),
+                    "recommended_price_change_pct": float(a.get("recommended_price_change_pct") or 0.0),
+                })
+
+            max_price = float((constraints or {}).get("max_abs_price_change_pct") or 10.0)
+            pids = ", ".join([p["product_id"] for p in proposals])
+            advocate = {
+                "proposed_actions": proposals,
+                "key_claims": [
+                    f"Fallback advocate: preserve the specialist-ranked top {len(proposals)} products: {pids}.",
+                    "Recommendations are grounded in retrieval, pricing, sentiment, and inventory cache signals.",
+                    f"All price changes remain within the selected +/-{max_price:.0f}% guardrail.",
+                ],
+                "concerns": [
+                    "Live LLM debate is unavailable, so this is a deterministic fallback proposal.",
+                    "A seller should verify return reasons before executing customer-facing changes.",
+                ],
+            }
+
+            agreements = [
+                "The plan uses retrieved products from the selected catalog scope.",
+                "The ranking is grounded by specialist signals before any human decision is made.",
+            ]
+            disagreements: list[str] = []
+            changes: list[str] = []
+            for a in top:
+                pid = str(a.get("product_id"))
+                pr = a.get("pricing") or {}
+                sent = a.get("sentiment") or {}
+                sig = a.get("signals") or {}
+                returns = float(sig.get("total_returns") or 0.0)
+                p_neg = float(sent.get("p_neg") or 0.0)
+                if pr.get("price_missing") or str(pr.get("source") or "").lower() == "fallback":
+                    disagreements.append(f"{pid}: pricing is missing, so repricing should not be automated.")
+                    changes.append(f"{pid}: use investigate with 0.00% price change until price data is verified.")
+                elif returns > 0 or p_neg >= 0.20:
+                    disagreements.append(
+                        f"{pid}: return risk needs manual review before promotion or price movement."
+                    )
+                    changes.append(
+                        f"{pid}: inspect reviews/returns first; only apply the cached price delta if the issue is not product quality."
+                    )
+            if not disagreements:
+                disagreements.append("No blocking data issue found in the top products; execution risk is mainly manual validation.")
+            if not changes:
+                changes.append("Keep the top ranked actions but validate return reasons before launch.")
+
+            critic = {
+                "agreements": agreements,
+                "disagreements": disagreements[:4],
+                "suggested_changes": changes[:4],
+            }
+
+        trace = {
+            "mode": "deterministic_fallback",
+            "stage": stage,
+            "reason": str(reason)[:500],
+            "advocate": advocate,
+            "critic": critic,
+        }
+        return advocate, critic, trace
+
+    def _fallback_judge_actions(
+        self,
+        *,
+        baseline_actions: list[dict[str, Any]],
+        top_n_actions: int,
+        reason: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        out: list[dict[str, Any]] = []
+        for a in baseline_actions[:top_n_actions]:
+            pid = str((a or {}).get("product_id") or "").strip()
+            if not pid:
+                continue
+            out.append({
+                "product_id": pid,
+                "action_type": str(a.get("action_type") or a.get("suggested_action") or "investigate").lower(),
+                "recommended_price_change_pct": float(a.get("recommended_price_change_pct") or 0.0),
+                "rationale_bullets": [
+                    "Fallback judge: live LLM synthesis unavailable; preserving specialist-ranked baseline.",
+                    "Action remains grounded in retrieval, pricing, sentiment, and inventory signals.",
+                ],
+                "risk_bullets": [
+                    "Seller should manually verify return reasons before execution.",
+                ],
+            })
+        raw = {
+            "judge": {
+                "content": "Judge fallback used because live LLM synthesis did not complete or validate. Final actions preserve the specialist-ranked baseline."
+            },
+            "used_baseline_fallback": True,
+            "error": str(reason)[:500],
+        }
+        return out, raw, True
 
     def _merge_judge_output(
         self,
@@ -960,11 +1115,11 @@ class Pipeline:
             if pr.get("price_missing") or str(pr.get("source") or "") == "fallback":
                 risks.append("Pricing signal unavailable: recommended price change is low-confidence.")
             elif pr.get("near_bound"):
-                risks.append("Suggested delta is near the policy bound — consider a staged rollout.")
+                risks.append("Suggested delta is near the policy bound - consider a staged rollout.")
             elif pr.get("large_delta"):
-                risks.append("Large pricing delta suggested — human review recommended before full rollout.")
+                risks.append("Large pricing delta suggested - human review recommended before full rollout.")
             elif pr.get("moderate_delta"):
-                risks.append("Moderate pricing delta suggested — apply carefully and monitor response.")
+                risks.append("Moderate pricing delta suggested - apply carefully and monitor response.")
 
             # De-dup and cap.
             dedup: list[str] = []
@@ -998,7 +1153,7 @@ class Pipeline:
             det_risk = _deterministic_risk(base)
             # Always use deterministic bullets to guarantee factual accuracy.
             # The LLM's action_type and reasoning are preserved; only the cited field values
-            # are grounded from actual input data (same principle as RAG — ground citations,
+            # are grounded from actual input data (same principle as RAG - ground citations,
             # not reasoning). LLM outputs are kept as trace-only labels.
             llm_rationale = det
             llm_risk = det_risk
@@ -1007,7 +1162,7 @@ class Pipeline:
             price_change = float(ja.get("recommended_price_change_pct") or 0.0)
 
             # Hard guardrail 1: if pricing data is unavailable, the judge cannot
-            # legitimately recommend a reprice — force investigate + zero delta.
+            # legitimately recommend a reprice - force investigate + zero delta.
             pricing_info = base.get("pricing") or {}
             if pricing_info.get("price_missing") or str(pricing_info.get("source") or "") == "fallback":
                 if action_type == "reprice":
@@ -1015,10 +1170,10 @@ class Pipeline:
                     price_change = 0.0
 
             # Hard guardrail 2: mirror the playbook's sentiment/returns threshold.
-            # p_neg >= 0.30 with >= 10 reviews → investigate (strong feedback signal).
+            # p_neg >= 0.30 with >= 10 reviews -> investigate (strong feedback signal).
             # Returns: use dual condition (count + rate) to avoid penalising high-volume products.
-            #   total_returns >= 5 AND return_rate >= 5% → investigate (true quality issue).
-            #   return_rate >= 3% alone → not a hard block; handled as caution by delta flags / UI.
+            #   total_returns >= 5 AND return_rate >= 5% -> investigate (true quality issue).
+            #   return_rate >= 3% alone -> not a hard block; handled as caution by delta flags / UI.
             sentiment_info = base.get("sentiment") or {}
             sig_info = base.get("signals") or {}
             inv_info = base.get("inventory") or {}
@@ -1078,9 +1233,9 @@ class Pipeline:
                     action_type = "promote"
                     price_change = 0.0
 
-            # Hard guardrail 5: for reduce_returns, block downgrading investigate → hold.
+            # Hard guardrail 5: for reduce_returns, block downgrading investigate -> hold.
             # When the objective is to reduce complaints, "hold" on a high-negativity or
-            # high-return product means ignoring the signal entirely — wrong for the seller.
+            # high-return product means ignoring the signal entirely; wrong for the seller.
             # If the playbook said "investigate" and signals support it, keep "investigate".
             _obj_g5 = str((constraints or {}).get("objective") or "").strip().lower()
             if (
@@ -1319,8 +1474,15 @@ class Pipeline:
                 baseline_actions=baseline_actions,
                 run_dir=run_dir,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            adv_result, crit_result, debate_trace = self._fallback_debate(
+                baseline_actions=baseline_actions,
+                constraints=constraints,
+                top_n_actions=top_n_actions,
+                reason=f"{type(exc).__name__}: {exc}",
+                stage="debate_start",
+            )
+            self._write_stage(run_dir, "4_debate_fallback.json", debate_trace)
 
         return {
             "ok": True,
@@ -1441,8 +1603,15 @@ class Pipeline:
                     baseline_actions=baseline_ranked,
                     run_dir=run_dir,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                adv_result, crit_result, debate_trace = self._fallback_debate(
+                    baseline_actions=baseline_ranked,
+                    constraints=constraints,
+                    top_n_actions=top_n_actions,
+                    reason=f"{type(exc).__name__}: {exc}",
+                    stage="orchestrate",
+                )
+                self._write_stage(run_dir, "4_debate_fallback.json", debate_trace)
 
         # 5. Build trace
         trace = {
@@ -1498,7 +1667,7 @@ class Pipeline:
         prompt_version: str = "v1",
         human_feedback: str | None = None,
     ) -> dict[str, Any]:
-        """Run one more Advocate + Critic round. Returns advocate + critic only — no judge."""
+        """Run one more Advocate + Critic round. Returns advocate + critic only - no judge."""
         constraints = constraints or {"max_abs_price_change_pct": 10.0}
 
         ts = datetime.now(timezone.utc)
@@ -1516,18 +1685,28 @@ class Pipeline:
             top_k=top_n_actions,
         )
 
-        adv_result, crit_result, raw = continue_acj(
-            self.ollama,
-            cfg=cfg,
-            goal=goal,
-            constraints=constraints,
-            candidates=enriched_candidates,
-            baseline_actions=baseline_actions,
-            prev_advocate=prev_advocate,
-            prev_critic=prev_critic,
-            human_feedback=human_feedback,
-            run_dir=run_dir,
-        )
+        try:
+            adv_result, crit_result, raw = continue_acj(
+                self.ollama,
+                cfg=cfg,
+                goal=goal,
+                constraints=constraints,
+                candidates=enriched_candidates,
+                baseline_actions=baseline_actions,
+                prev_advocate=prev_advocate,
+                prev_critic=prev_critic,
+                human_feedback=human_feedback,
+                run_dir=run_dir,
+            )
+        except Exception as exc:
+            adv_result, crit_result, raw = self._fallback_debate(
+                baseline_actions=baseline_actions,
+                constraints=constraints,
+                top_n_actions=top_n_actions,
+                reason=f"{type(exc).__name__}: {exc}",
+                stage="debate_continue",
+            )
+            self._write_stage(run_dir, "4_debate_continue_fallback.json", raw)
 
         return {
             "ok": True,
@@ -1574,18 +1753,31 @@ class Pipeline:
             top_k=top_n_actions,
         )
 
-        final_actions, judge_raw, judge_fallback = run_judge_only(
-            self.ollama,
-            cfg=cfg,
-            goal=goal,
-            constraints=constraints,
-            candidates=enriched_candidates,
-            baseline_actions=baseline_actions,
-            latest_advocate=latest_advocate,
-            latest_critic=latest_critic,
-            human_feedback=human_feedback,
-            run_dir=run_dir,
-        )
+        try:
+            final_actions, judge_raw, judge_fallback = run_judge_only(
+                self.ollama,
+                cfg=cfg,
+                goal=goal,
+                constraints=constraints,
+                candidates=enriched_candidates,
+                baseline_actions=baseline_actions,
+                latest_advocate=latest_advocate,
+                latest_critic=latest_critic,
+                human_feedback=human_feedback,
+                run_dir=run_dir,
+            )
+        except Exception as exc:
+            final_actions, judge_raw, judge_fallback = self._fallback_judge_actions(
+                baseline_actions=baseline_actions,
+                top_n_actions=top_n_actions,
+                reason=f"{type(exc).__name__}: {exc}",
+            )
+            self._write_stage(run_dir, "8_debate_judge_fallback.json", {
+                "role": "judge",
+                "result": final_actions,
+                "raw": judge_raw,
+                "fallback": judge_fallback,
+            })
 
         ranked_actions = self._merge_judge_output(
             final_actions, enriched_by_pid, horizon_days, constraints=constraints

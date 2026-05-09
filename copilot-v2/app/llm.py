@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.error
@@ -26,11 +27,13 @@ class OllamaClient:
         self,
         *,
         base_url: str = "http://localhost:11434",
-        timeout_s: float = 120.0,
+        timeout_s: float | None = None,
         retries: int = 1,
         backoff_s: float = 0.5,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        if timeout_s is None:
+            timeout_s = float(os.environ.get("COPILOT_OLLAMA_TIMEOUT_S", "600"))
         self.timeout_s = float(timeout_s)
         self.retries = int(retries)
         self.backoff_s = float(backoff_s)
