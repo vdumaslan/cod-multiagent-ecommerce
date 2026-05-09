@@ -5,8 +5,10 @@ startup hydration when COPILOT_DATA_BACKEND=bigquery.
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -97,6 +99,53 @@ def load_sentiment_cache(snapshot_id: str) -> dict[str, dict[str, float]]:
         }
         for r in rows
     }
+
+
+def log_decision_run(
+    *,
+    snapshot_id: str,
+    owner_id: str,
+    run_id: str,
+    variant: str,
+    goal: str,
+    ranked_actions: list[dict[str, Any]],
+    chosen_product_id: str | None = None,
+    confidence_rating: int | None = None,
+) -> int:
+    """Write ranked actions to operator_decision_log. Returns number of rows written."""
+    from google.cloud import bigquery as bq  # type: ignore
+
+    cfg = BigQueryCacheConfig.from_env(snapshot_id)
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [
+        {
+            "event_ts": now,
+            "snapshot_id": snapshot_id,
+            "owner_id": owner_id,
+            "run_id": run_id,
+            "variant": variant,
+            "event": "decision_submitted",
+            "goal": goal,
+            "product_id": str(a.get("product_id") or ""),
+            "accepted": str(a.get("product_id") or "") == chosen_product_id if chosen_product_id else True,
+            "confidence_rating": confidence_rating,
+            "metadata_json": json.dumps({k: v for k, v in a.items() if k != "product_id"}, default=str),
+        }
+        for a in ranked_actions
+    ]
+    if not rows:
+        return 0
+    job_config = bq.LoadJobConfig(
+        source_format=bq.SourceFormat.NEWLINE_DELIMITED_JSON,
+        write_disposition=bq.WriteDisposition.WRITE_APPEND,
+    )
+    _client(cfg).load_table_from_json(
+        rows,
+        f"{cfg.project_id}.{cfg.dataset}.operator_decision_log",
+        location=cfg.location,
+        job_config=job_config,
+    ).result()
+    return len(rows)
 
 
 def load_inventory_cache(snapshot_id: str) -> dict[str, dict[str, object]]:

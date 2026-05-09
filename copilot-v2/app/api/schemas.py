@@ -252,6 +252,16 @@ class ABSaveRunRequest(BaseModel):
     confidence_rating: int | None = None
 
 
+class RunLogRequest(BaseModel):
+    run_id: str
+    owner_id: str
+    goal: str
+    variant: str = ""
+    ranked_actions: list[dict[str, Any]]
+    chosen_product_id: str | None = None
+    confidence_rating: int | None = None
+
+
 class HealthResponse(BaseModel):
     ok: bool
     snapshot_id: str
@@ -259,6 +269,9 @@ class HealthResponse(BaseModel):
     has_sentiment_cache: bool
     has_inventory_cache: bool
     has_retrieval_index: bool
+    pricing_cache_source: str = "local"
+    sentiment_cache_source: str = "local"
+    inventory_cache_source: str = "local"
 
 
 class CatalogBucket(BaseModel):

@@ -23,6 +23,7 @@ app/
 │   ├── app.py
 │   └── schemas.py
 ├── ui/                      # React + Vite frontend
+├── bigquery_cache.py        # BigQuery startup hydration (used when COPILOT_DATA_BACKEND=bigquery)
 ├── llm.py                   # OllamaClient and JSON schema validators
 ├── pipeline.py              # Main entry point wiring all agents together
 └── APP_IMPLEMENTATION.md    # Detailed implementation notes
@@ -64,6 +65,8 @@ Round decisions (continue vs. move on) are owned by the UI. The backend runs exa
 
 The specialist agents read only from pre-built caches — no model inference except for encoding the user query in the retrieval agent.
 
+The cache source (local files or BigQuery) is selected at startup via `COPILOT_DATA_BACKEND` and reported by the `/health` endpoint and the UI badge.
+
 ---
 
 ## Debate Models
@@ -104,7 +107,23 @@ cd copilot-v2/app/ui
 npm install
 ```
 
-**3. Ollama**
+**3. Google Cloud SDK** (optional — only needed for BigQuery mode)
+
+Download and install the gcloud CLI from https://cloud.google.com/sdk/docs/install. After installation, open a new terminal and authenticate:
+
+```powershell
+gcloud auth application-default login
+```
+
+This opens a browser to log in with your Google account. Credentials are saved automatically and picked up by the BigQuery client library.
+
+Also install the BigQuery Python client if it is not already in your venv:
+
+```powershell
+pip install google-cloud-bigquery
+```
+
+**4. Ollama**
 
 Download and install from https://ollama.com. After installation, pull the two models:
 
@@ -122,7 +141,9 @@ Verify Ollama is running: open `http://localhost:11434` — it should return `Ol
 
 ## Required Artifacts
 
-The app reads from these pre-built artifacts at runtime (all under `copilot-v2/artifacts/`). If you don't have them locally, download them from the shared Google Drive and place them under `copilot-v2/artifacts/`.
+What you need locally depends on which mode you run.
+
+**Local mode** — all four artifacts required:
 
 | Path | Used by | Notes |
 |---|---|---|
@@ -131,9 +152,17 @@ The app reads from these pre-built artifacts at runtime (all under `copilot-v2/a
 | `caches/38710839ca6e1009/inventory/inventory_cache.parquet` | `inventory_agent.py` | Rule-based, fast to regenerate |
 | `indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` | `retrieval_agent.py` | FAISS index over retrieval corpus |
 
+**BigQuery mode** — only the FAISS index is required locally; the three cache Parquet files are loaded from BigQuery at startup instead:
+
+| Path | Used by | Notes |
+|---|---|---|
+| `indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` | `retrieval_agent.py` | Always local — cannot be precomputed |
+
+If you don't have any of these locally, download them from the shared Google Drive and place them under `copilot-v2/artifacts/`.
+
 Everything else in `artifacts/` (`data_snapshots/`, `models/`, `features/`, `evals/`, etc.) is only needed by the precompute pipeline — not the running app.
 
-The `/health` endpoint reports which caches loaded successfully on startup.
+The `/health` endpoint reports which caches loaded successfully on startup and whether they came from BigQuery or local files.
 
 ---
 
@@ -179,6 +208,8 @@ Three things to start (two terminals + Ollama in background):
 
 **Terminal 1 — API server** (from repo root):
 
+Local mode (default — reads caches from Parquet files):
+
 Windows (PowerShell):
 ```powershell
 .venv-copilot-v2\Scripts\activate
@@ -197,6 +228,38 @@ export PYTHONPATH="$PWD"
 uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+BigQuery mode (reads pricing, sentiment, and inventory caches from BigQuery at startup):
+
+Windows (PowerShell):
+```powershell
+.venv-copilot-v2\Scripts\activate
+cd copilot-v2
+$env:COPILOT_ARTIFACTS_ROOT  = "$PWD\artifacts"
+$env:PYTHONPATH              = "$PWD"
+$env:COPILOT_DATA_BACKEND    = "bigquery"
+$env:GCP_PROJECT_ID          = "linear-theater-436300-r9"
+$env:BIGQUERY_DATASET        = "copilot_v2"
+$env:BIGQUERY_LOCATION       = "US"
+$env:COPILOT_BIGQUERY_FALLBACK_TO_LOCAL = "1"   # falls back to local Parquet if BigQuery fails
+uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Mac/Linux:
+```bash
+source .venv-copilot-v2/bin/activate
+cd copilot-v2
+export COPILOT_ARTIFACTS_ROOT="$PWD/artifacts"
+export PYTHONPATH="$PWD"
+export COPILOT_DATA_BACKEND=bigquery
+export GCP_PROJECT_ID=linear-theater-436300-r9
+export BIGQUERY_DATASET=copilot_v2
+export BIGQUERY_LOCATION=US
+export COPILOT_BIGQUERY_FALLBACK_TO_LOCAL=1
+uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+> **BigQuery prerequisite:** You must be authenticated (`gcloud auth application-default login`) and the tables must already be uploaded to BigQuery. See `copilot-v2/docs/BIGQUERY_CLOUD_PIPELINE.md` for upload instructions. The FAISS retrieval index always loads from local files regardless of `COPILOT_DATA_BACKEND`.
+
 **Terminal 2 — React UI:**
 
 ```bash
@@ -206,7 +269,9 @@ npm run dev
 
 Open `http://localhost:5173` in your browser.
 
-The UI polls the `/health` endpoint on load and shows one of four badge states (top-right):
+The UI polls the `/health` endpoint on load and shows two badge types (top-right):
+
+**API status badge:**
 
 | Badge | Colour | Meaning |
 |---|---|---|
@@ -214,6 +279,14 @@ The UI polls the `/health` endpoint on load and shows one of four badge states (
 | **API ONLINE** | Green | All caches and retrieval index loaded — safe to submit |
 | **API DEGRADED** | Orange | API is running but one or more components failed to load — check `/health` response and run the missing precompute step |
 | **API OFFLINE** | Red | API is not reachable — check that the server is running |
+
+**Data backend badge** (appears once the first health response is received):
+
+| Badge | Colour | Meaning |
+|---|---|---|
+| **☁ BigQuery** | Blue | All three specialist caches loaded from BigQuery |
+| **☁ mixed** | Orange | BigQuery was attempted but at least one cache fell back to local files |
+| **⬡ local** | Grey | All caches loaded from local Parquet files |
 
 > **If you submit a query and the UI silently resets back to the query page**, the badge should show **API DEGRADED**. The most common cause is the retrieval index not being present at `artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` — download it from the shared Google Drive. If the badge shows **API ONLINE** but the reset still happens, check the API server terminal — FastAPI prints the full error traceback there.
 
@@ -233,7 +306,17 @@ The UI polls the `/health` endpoint on load and shows one of four badge states (
 curl http://localhost:8000/health -UseBasicParsing
 ```
 
-Expected: `{"ok":true,"has_pricing_cache":true,"has_sentiment_cache":true,"has_inventory_cache":true,"has_retrieval_index":true}`
+Local mode expected response:
+```json
+{"ok":true,"snapshot_id":"38710839ca6e1009","has_pricing_cache":true,"has_sentiment_cache":true,"has_inventory_cache":true,"has_retrieval_index":true,"pricing_cache_source":"local","sentiment_cache_source":"local","inventory_cache_source":"local"}
+```
+
+BigQuery mode expected response:
+```json
+{"ok":true,"snapshot_id":"38710839ca6e1009","has_pricing_cache":true,"has_sentiment_cache":true,"has_inventory_cache":true,"has_retrieval_index":true,"pricing_cache_source":"bigquery","sentiment_cache_source":"bigquery","inventory_cache_source":"bigquery"}
+```
+
+If a BigQuery cache fell back to local, the source field will show `"local_fallback"` instead of `"bigquery"`.
 
 If any cache shows `false`, run the corresponding precompute step above.
 
@@ -245,23 +328,29 @@ If any cache shows `false`, run the corresponding precompute step above.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Cache load status for all three specialist agents |
+| `GET` | `/health` | Cache load status and data backend source for all three specialist agents |
 | `POST` | `/pipeline` | Retrieval + enrichment + baseline (fast, no LLMs) |
 | `POST` | `/debate/start` | Advocate + Critic round 1 (LLMs, slow) |
 | `POST` | `/debate/continue` | One more Advocate + Critic revision round (LLMs) |
 | `POST` | `/debate/judge` | Judge once on final debate; returns ranked actions |
+| `POST` | `/runs/log` | Write final ranked actions + chosen plan to BigQuery `operator_decision_log`; no-op in local mode |
 | `POST` | `/orchestrate` | Legacy all-in-one endpoint (kept for compatibility) |
 
 Env vars:
 - `COPILOT_SNAPSHOT_ID` (default: `38710839ca6e1009`)
 - `COPILOT_ARTIFACTS_ROOT` (default: `copilot-v2/artifacts`)
 - `COPILOT_OLLAMA_URL` (default: `http://localhost:11434`)
+- `COPILOT_DATA_BACKEND` — `local` (default) or `bigquery`
+- `GCP_PROJECT_ID` — required when `COPILOT_DATA_BACKEND=bigquery`
+- `BIGQUERY_DATASET` (default: `copilot_v2`)
+- `BIGQUERY_LOCATION` (default: `US`)
+- `COPILOT_BIGQUERY_FALLBACK_TO_LOCAL` — `1` (default) falls back to local Parquet if BigQuery fails; set to `0` to hard-fail
 
 ---
 
 ## Artifact Saving
 
-Every API call writes outputs to a timestamped folder under `artifacts/runs/{snapshot_id}/`. Files are written immediately after each agent completes.
+**Local files** are always written regardless of `COPILOT_DATA_BACKEND`. Every API call writes outputs to a timestamped folder under `artifacts/runs/{snapshot_id}/` immediately after each agent completes.
 
 | Folder suffix | Created by | Files |
 |---|---|---|
@@ -269,6 +358,8 @@ Every API call writes outputs to a timestamped folder under `artifacts/runs/{sna
 | `run_{ts}_{owner}_debate/` | `/debate/start` | `4_debate_advocate_r1.json`, `5_debate_critic_r1.json` |
 | `run_{ts}_{owner}_cont/` | `/debate/continue` | `4_debate_advocate.json`, `5_debate_critic.json` |
 | `run_{ts}_{owner}_judge/` | `/debate/judge` | `8_debate_judge.json`, `9_final.json` |
+
+**BigQuery decision log** — only when `COPILOT_DATA_BACKEND=bigquery`. When the user clicks "Choose this plan" and rates their confidence in the UI, the frontend calls `POST /runs/log`, which appends one row per ranked action to the `operator_decision_log` table in BigQuery. Each row records the `run_id`, `goal`, `owner_id`, `product_id`, `action_type`, `title`, `rank`, which plan was chosen (`accepted=true`), and the confidence rating. (Price change pct is omitted pending the field rename in Bug 2 / S6.) Local files are still written as normal — the BigQuery write is additive.
 
 ---
 

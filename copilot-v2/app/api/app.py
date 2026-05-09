@@ -25,8 +25,10 @@ from app.api.schemas import (
     DebateJudgeResponse,
     ABEventRequest,
     ABSaveRunRequest,
+    RunLogRequest,
 )
 from app.ab import assign_variant, log_event, save_version_a_run
+from app.bigquery_cache import log_decision_run, selected_data_backend
 from app.rl import default_arms, load_state, save_state, summarize, update_from_event
 from app.pipeline import Pipeline, SNAPSHOT_ID
 
@@ -69,6 +71,9 @@ def health() -> HealthResponse:
         has_sentiment_cache=bool(p.sentiment._cache),
         has_inventory_cache=bool(p.inventory._cache),
         has_retrieval_index=p.retrieval._index is not None,
+        pricing_cache_source=p.pricing._cache_source,
+        sentiment_cache_source=p.sentiment._cache_source,
+        inventory_cache_source=p.inventory._cache_source,
     )
 
 
@@ -235,6 +240,27 @@ def ab_save_run(req: ABSaveRunRequest) -> dict:
         runs_root=p._runs_root,
     )
     return {"ok": True, "run_id": run_id}
+
+
+@app.post("/runs/log")
+def runs_log(req: RunLogRequest) -> dict:
+    if selected_data_backend() != "bigquery":
+        return {"ok": True, "skipped": True, "reason": "not_bigquery_mode"}
+    p = get_pipeline()
+    try:
+        rows = log_decision_run(
+            snapshot_id=p.snapshot_id,
+            owner_id=req.owner_id,
+            run_id=req.run_id,
+            variant=req.variant,
+            goal=req.goal,
+            ranked_actions=req.ranked_actions,
+            chosen_product_id=req.chosen_product_id,
+            confidence_rating=req.confidence_rating,
+        )
+        return {"ok": True, "rows_written": rows}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 @app.post("/orchestrate", response_model=OrchestrateResponse)

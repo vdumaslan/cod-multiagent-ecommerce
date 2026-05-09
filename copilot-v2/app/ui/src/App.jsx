@@ -741,6 +741,7 @@ export default function App() {
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [saveStatusMessage, setSaveStatusMessage] = useState("");
   const [apiHealth, setApiHealth] = useState("checking");
+  const [dataBackend, setDataBackend] = useState(null);
   const [plans, setPlans] = useState([]);
   const [resultsMessage, setResultsMessage] = useState("");
   const [pipelineResult, setPipelineResult] = useState(null);
@@ -830,7 +831,15 @@ export default function App() {
         if (!res.ok) throw new Error();
         const data = await res.json();
         const allReady = data.has_pricing_cache && data.has_sentiment_cache && data.has_inventory_cache && data.has_retrieval_index;
-        if (!cancelled) setApiHealth(allReady ? "online" : "degraded");
+        if (!cancelled) {
+          setApiHealth(allReady ? "online" : "degraded");
+          const sources = [data.pricing_cache_source, data.sentiment_cache_source, data.inventory_cache_source].filter(Boolean);
+          if (sources.length > 0) {
+            const allBq = sources.every(s => s === "bigquery");
+            const anyBq = sources.some(s => s === "bigquery" || s === "local_fallback");
+            setDataBackend(allBq ? "bigquery" : anyBq ? "mixed" : "local");
+          }
+        }
       } catch {
         if (!cancelled) setApiHealth("offline");
       }
@@ -1081,6 +1090,25 @@ export default function App() {
       setSelectedPlanId(pending);
       setIsSavingPlan(true);
       setSaveStatusMessage(`Saving "${chosen.title}"...`);
+      fetch(`${API_BASE}/runs/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          run_id: pipelineResult?.run_id || "",
+          owner_id: DEFAULT_OWNER_ID,
+          goal: query,
+          variant: abVariant || abMode,
+          ranked_actions: plans.map((p, i) => ({
+            product_id: p.id,
+            action_type: p.finalActionType,
+            recommended_price_change_pct: null,
+            title: p.title,
+            rank: i + 1,
+          })),
+          chosen_product_id: chosen.id,
+          confidence_rating: rating,
+        }),
+      }).catch(() => {});
       saveTimerRef.current = setTimeout(() => {
         setSaveStatusMessage(`Saved "${chosen.title}".`);
         saveTimerRef.current = setTimeout(handleRejectAll, 1200);
@@ -1433,6 +1461,17 @@ export default function App() {
               >
                 API {apiHealth}
               </span>
+              {dataBackend && (
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
+                    dataBackend === "bigquery" ? "bg-blue-500/20 text-blue-300"
+                    : dataBackend === "mixed" ? "bg-orange-500/20 text-orange-300"
+                    : "bg-slate-500/20 text-slate-300"
+                  }`}
+                >
+                  {dataBackend === "bigquery" ? "☁ BigQuery" : dataBackend === "mixed" ? "☁ mixed" : "⬡ local"}
+                </span>
+              )}
             </div>
           </div>
         </div>
