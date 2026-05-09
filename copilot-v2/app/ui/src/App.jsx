@@ -763,6 +763,10 @@ export default function App() {
   const [excludeStockoutRisk, setExcludeStockoutRisk] = useState(false);
   const [doNotRaiseIfPNegAbove, setDoNotRaiseIfPNegAbove] = useState("");
 
+  useEffect(() => {
+    if (objective === "profit") setObjective("revenue");
+  }, [objective]);
+
   // A/B testing
   const [abMode, setAbMode] = useState("B"); // mode used right now: "A" manual, "B" AI
   const [abVariant, setAbVariant] = useState(""); // assigned variant for analytics

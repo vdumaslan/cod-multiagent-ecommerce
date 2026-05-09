@@ -32,7 +32,6 @@ export default function QueryInputView({
 
   const objectiveLabel = {
     revenue: "grow revenue",
-    profit: "grow profit",
     clear_inventory: "clear inventory",
     reduce_returns: "reduce returns",
     avoid_stockouts: "avoid stockouts",
@@ -56,12 +55,6 @@ export default function QueryInputView({
       return [
         `Reduce returns for ${scope}: prioritize items with high negative sentiment and high returns.`,
         `Reduce complaints for ${scope}: investigate top-return SKUs and adjust promotions.`,
-      ];
-    }
-    if (objective === "profit") {
-      return [
-        `Improve profit for ${scope}: avoid aggressive discounting and investigate high-return items.`,
-        `Grow profit for ${scope}: focus on stable sentiment and manageable inventory risk.`,
       ];
     }
     return [
@@ -135,14 +128,10 @@ export default function QueryInputView({
             className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:ring-2 focus:ring-cyan-400"
           >
             <option value="revenue">Grow revenue</option>
-            <option value="profit">Grow profit (proxy)</option>
             <option value="clear_inventory">Clear inventory / reduce overstock</option>
             <option value="reduce_returns">Reduce returns / complaints</option>
             <option value="avoid_stockouts">Avoid stockouts</option>
           </select>
-          <p className="mt-2 text-xs text-slate-500">
-            Note: profit is a proxy here (margin/COGS are missing). This mainly affects ranking priorities and guardrails.
-          </p>
         </label>
 
         <label className="text-sm text-slate-300">
