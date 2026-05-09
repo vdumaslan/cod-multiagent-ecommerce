@@ -12,6 +12,9 @@ export default defineConfig({
       "/debate": "http://127.0.0.1:8000",
       "/catalog": "http://127.0.0.1:8000",
       "/retrieval": "http://127.0.0.1:8000",
+      "/runs": "http://127.0.0.1:8000",
+      "/ab": "http://127.0.0.1:8000",
+      "/rl": "http://127.0.0.1:8000",
     },
   },
 });

@@ -36,27 +36,27 @@ def default_arms() -> list[RLArm]:
         RLArm(
             arm_id="strict",
             name="Strict retrieval + rewrite",
-            config={"retrieval_min_score": 0.85, "enable_query_rewrite": True, "enable_pricing_shrinkage": True},
+            config={"retrieval_min_score": 0.80, "enable_query_rewrite": True, "enable_pricing_shrinkage": True},
         ),
         RLArm(
             arm_id="balanced",
             name="Balanced retrieval + rewrite",
-            config={"retrieval_min_score": 0.80, "enable_query_rewrite": True, "enable_pricing_shrinkage": True},
+            config={"retrieval_min_score": 0.75, "enable_query_rewrite": True, "enable_pricing_shrinkage": True},
         ),
         RLArm(
             arm_id="soft",
             name="Soft retrieval + rewrite",
-            config={"retrieval_min_score": 0.75, "enable_query_rewrite": True, "enable_pricing_shrinkage": True},
+            config={"retrieval_min_score": 0.70, "enable_query_rewrite": True, "enable_pricing_shrinkage": True},
         ),
         RLArm(
             arm_id="no_rewrite",
             name="Balanced retrieval + no rewrite",
-            config={"retrieval_min_score": 0.80, "enable_query_rewrite": False, "enable_pricing_shrinkage": True},
+            config={"retrieval_min_score": 0.75, "enable_query_rewrite": False, "enable_pricing_shrinkage": True},
         ),
         RLArm(
             arm_id="no_shrink",
             name="Balanced retrieval + rewrite + no shrinkage",
-            config={"retrieval_min_score": 0.80, "enable_query_rewrite": True, "enable_pricing_shrinkage": False},
+            config={"retrieval_min_score": 0.75, "enable_query_rewrite": True, "enable_pricing_shrinkage": False},
         ),
     ]
 

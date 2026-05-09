@@ -1108,7 +1108,9 @@ export default function App() {
           chosen_product_id: chosen.id,
           confidence_rating: rating,
         }),
-      }).catch(() => {});
+      }).then((res) => res.json()).then((data) => {
+        if (!data.ok) console.error("runs/log failed:", data);
+      }).catch((err) => console.error("runs/log failed:", err));
       saveTimerRef.current = setTimeout(() => {
         setSaveStatusMessage(`Saved "${chosen.title}".`);
         saveTimerRef.current = setTimeout(handleRejectAll, 1200);
