@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -13,7 +13,7 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer, models
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from copilot_v2.runtime.inventory_agent import InventoryAgentConfig, attach_inventory_to_ranked_actions
+from runtime.inventory_agent import InventoryAgentConfig, attach_inventory_to_ranked_actions
 
 
 @dataclass(frozen=True)

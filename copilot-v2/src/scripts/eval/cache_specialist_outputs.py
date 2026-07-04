@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from copilot_v2.runtime.orchestrator import (
+from runtime.orchestrator import (
     OrchestratorConfig,
     OrchestratorContext,
     _load_inventory,

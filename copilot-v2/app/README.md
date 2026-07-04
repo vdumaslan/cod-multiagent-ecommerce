@@ -1,6 +1,6 @@
-# copilot-v2 / app
+﻿# copilot-v2 / app
 
-This directory contains the runtime application layer for the seller copilot — the specialist agents, debate orchestrator, API, and React UI.
+This directory contains the runtime application layer for the seller copilot â€” the specialist agents, debate orchestrator, API, and React UI.
 
 ---
 
@@ -8,28 +8,28 @@ This directory contains the runtime application layer for the seller copilot —
 
 ```
 app/
-├── agents/                  # Specialist agents (runtime, reads from cache)
-│   ├── retrieval_agent.py   # Dense retrieval using intfloat/e5-large-v2 + FAISS
-│   ├── pricing_agent.py     # Pricing recommendations from TabPFN cache
-│   ├── sentiment_agent.py   # Sentiment signals from DistilRoBERTa cache
-│   ├── inventory_agent.py   # Stock classification from rule-based cache
-│   └── orchestrator/        # Debate layer (Advocate, Critic, Judge)
-│       ├── advocate.py
-│       ├── critic.py
-│       ├── judge.py
-│       ├── human_review.py
-│       └── orchestrator.py
-├── api/                     # FastAPI server
-│   ├── app.py
-│   └── schemas.py
-├── ui/                      # React + Vite frontend
-├── bigquery_cache.py        # BigQuery startup hydration (used when COPILOT_DATA_BACKEND=bigquery)
-├── llm.py                   # OllamaClient and JSON schema validators
-├── pipeline.py              # Main entry point wiring all agents together
-└── APP_IMPLEMENTATION.md    # Detailed implementation notes
+â”œâ”€â”€ agents/                  # Specialist agents (runtime, reads from cache)
+â”‚   â”œâ”€â”€ retrieval_agent.py   # Dense retrieval using intfloat/e5-large-v2 + FAISS
+â”‚   â”œâ”€â”€ pricing_agent.py     # Pricing recommendations from TabPFN cache
+â”‚   â”œâ”€â”€ sentiment_agent.py   # Sentiment signals from DistilRoBERTa cache
+â”‚   â”œâ”€â”€ inventory_agent.py   # Stock classification from rule-based cache
+â”‚   â””â”€â”€ orchestrator/        # Debate layer (Advocate, Critic, Judge)
+â”‚       â”œâ”€â”€ advocate.py
+â”‚       â”œâ”€â”€ critic.py
+â”‚       â”œâ”€â”€ judge.py
+â”‚       â”œâ”€â”€ human_review.py
+â”‚       â””â”€â”€ orchestrator.py
+â”œâ”€â”€ api/                     # FastAPI server
+â”‚   â”œâ”€â”€ app.py
+â”‚   â””â”€â”€ schemas.py
+â”œâ”€â”€ ui/                      # React + Vite frontend
+â”œâ”€â”€ bigquery_cache.py        # BigQuery startup hydration (used when COPILOT_DATA_BACKEND=bigquery)
+â”œâ”€â”€ llm.py                   # OllamaClient and JSON schema validators
+â”œâ”€â”€ pipeline.py              # Main entry point wiring all agents together
+â””â”€â”€ APP_IMPLEMENTATION.md    # Detailed implementation notes
 ```
 
-**Precompute scripts** live in `src/copilot_v2/scripts/precompute/` — not in this directory.
+**Precompute scripts** live in `src/scripts/precompute/` â€” not in this directory.
 
 ---
 
@@ -37,33 +37,33 @@ app/
 
 The system has two phases:
 
-**Offline (precompute) — run once**
+**Offline (precompute) â€” run once**
 ```
-Raw parquet files → src/copilot_v2/scripts/precompute/ → caches in artifacts/caches/
+Raw parquet files â†’ src/scripts/precompute/ â†’ caches in artifacts/caches/
 ```
 
-**Runtime — on every user query (4 API calls)**
+**Runtime â€” on every user query (4 API calls)**
 ```
 POST /pipeline  (fast, ~2s)
-  User query → retrieval agent → pricing + sentiment + inventory agents
-  → returns enriched candidates + baseline ranked actions
+  User query â†’ retrieval agent â†’ pricing + sentiment + inventory agents
+  â†’ returns enriched candidates + baseline ranked actions
 
 POST /debate/start  (slow, LLMs)
-  enriched candidates → Advocate LLM → Critic LLM (round 1)
-  → returns advocate + critic outputs
+  enriched candidates â†’ Advocate LLM â†’ Critic LLM (round 1)
+  â†’ returns advocate + critic outputs
 
-POST /debate/continue  (slow, LLMs — repeated N times, user-controlled)
-  prev_advocate + prev_critic → Advocate (revision) → Critic (revision)
-  → returns updated advocate + critic
+POST /debate/continue  (slow, LLMs â€” repeated N times, user-controlled)
+  prev_advocate + prev_critic â†’ Advocate (revision) â†’ Critic (revision)
+  â†’ returns updated advocate + critic
 
-POST /debate/judge  (slow, LLMs — once, when user clicks "Move On")
-  latest_advocate + latest_critic → Judge LLM
-  → returns final ranked action plan
+POST /debate/judge  (slow, LLMs â€” once, when user clicks "Move On")
+  latest_advocate + latest_critic â†’ Judge LLM
+  â†’ returns final ranked action plan
 ```
 
 Round decisions (continue vs. move on) are owned by the UI. The backend runs exactly what it is asked.
 
-The specialist agents read only from pre-built caches — no model inference except for encoding the user query in the retrieval agent.
+The specialist agents read only from pre-built caches â€” no model inference except for encoding the user query in the retrieval agent.
 
 The cache source (local files or BigQuery) is selected at startup via `COPILOT_DATA_BACKEND` and reported by the `/health` endpoint and the UI badge.
 
@@ -88,7 +88,7 @@ Prompt style: `few_shot_json` + `v1`
 **1. Python environment** (3.9 or later required)
 
 ```bash
-# From repo root — create the venv if it doesn't exist yet
+# From repo root â€” create the venv if it doesn't exist yet
 python -m venv .venv-copilot-v2
 
 # Activate it
@@ -107,7 +107,7 @@ cd copilot-v2/app/ui
 npm install
 ```
 
-**3. Google Cloud SDK** (optional — only needed for BigQuery mode)
+**3. Google Cloud SDK** (optional â€” only needed for BigQuery mode)
 
 Download and install the gcloud CLI from https://cloud.google.com/sdk/docs/install. After installation, open a new terminal and authenticate:
 
@@ -132,7 +132,7 @@ ollama pull llama3.1:8b
 ollama pull qwen2.5:7b-instruct
 ```
 
-Verify Ollama is running: open `http://localhost:11434` — it should return `Ollama is running`.
+Verify Ollama is running: open `http://localhost:11434` â€” it should return `Ollama is running`.
 
 - **Windows / Mac:** Ollama runs as a background service after install (check the system tray / menu bar). No manual `ollama serve` needed.
 - **Linux:** Run `ollama serve` in a separate terminal before starting the app. It needs to stay running.
@@ -143,7 +143,7 @@ Verify Ollama is running: open `http://localhost:11434` — it should return `Ol
 
 What you need locally depends on which mode you run.
 
-**Local mode** — all four artifacts required:
+**Local mode** â€” all four artifacts required:
 
 | Path | Used by | Notes |
 |---|---|---|
@@ -152,15 +152,15 @@ What you need locally depends on which mode you run.
 | `caches/38710839ca6e1009/inventory/inventory_cache.parquet` | `inventory_agent.py` | Rule-based, fast to regenerate |
 | `indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` | `retrieval_agent.py` | FAISS index over retrieval corpus |
 
-**BigQuery mode** — only the FAISS index is required locally; the three cache Parquet files are loaded from BigQuery at startup instead:
+**BigQuery mode** â€” only the FAISS index is required locally; the three cache Parquet files are loaded from BigQuery at startup instead:
 
 | Path | Used by | Notes |
 |---|---|---|
-| `indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` | `retrieval_agent.py` | Always local — cannot be precomputed |
+| `indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` | `retrieval_agent.py` | Always local â€” cannot be precomputed |
 
 If you don't have any of these locally, download them from the shared Google Drive and place them under `copilot-v2/artifacts/`.
 
-Everything else in `artifacts/` (`data_snapshots/`, `models/`, `features/`, `evals/`, etc.) is only needed by the precompute pipeline — not the running app.
+Everything else in `artifacts/` (`data_snapshots/`, `models/`, `features/`, `evals/`, etc.) is only needed by the precompute pipeline â€” not the running app.
 
 The `/health` endpoint reports which caches loaded successfully on startup and whether they came from BigQuery or local files.
 
@@ -168,7 +168,7 @@ The `/health` endpoint reports which caches loaded successfully on startup and w
 
 ## Building the Caches (one-time setup)
 
-Run these from the repo root in order. Check `artifacts/caches/38710839ca6e1009/` first — pricing and sentiment caches may already exist.
+Run these from the repo root in order. Check `artifacts/caches/38710839ca6e1009/` first â€” pricing and sentiment caches may already exist.
 
 > **Mac/Linux:** Replace the backtick `` ` `` line-continuation character with `\` in the commands below.
 
@@ -177,26 +177,26 @@ Run these from the repo root in order. Check `artifacts/caches/38710839ca6e1009/
 $env:PYTHONPATH = "copilot-v2/src"
 
 # Step 1: Generate pricing labels
-python -m copilot_v2.scripts.precompute.build_pricing_training_table `
+python -m scripts.precompute.build_pricing_training_table `
   --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts
 
 # Step 2: Build pricing cache (requires TabPFN model artifact + step 1 output)
-python -m copilot_v2.scripts.precompute.build_pricing_cache `
+python -m scripts.precompute.build_pricing_cache `
   --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --write-json
 
 # Step 3: Build sentiment cache (DistilRoBERTa model)
-python -m copilot_v2.scripts.precompute.build_sentiment_cache `
+python -m scripts.precompute.build_sentiment_cache `
   --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --approach distilroberta --write-json
 # Fast fallback (star ratings, no model needed):
-python -m copilot_v2.scripts.precompute.build_sentiment_cache `
+python -m scripts.precompute.build_sentiment_cache `
   --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --approach ratings
 
 # Step 4: Build inventory cache (rule-based, always fast)
-python -m copilot_v2.scripts.precompute.build_inventory_cache `
+python -m scripts.precompute.build_inventory_cache `
   --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --write-json
 
-# Step 5: Build retrieval index (check artifacts/indexes/ first — may already exist)
-python -m copilot_v2.scripts.precompute.build_owner_indexes `
+# Step 5: Build retrieval index (check artifacts/indexes/ first â€” may already exist)
+python -m scripts.precompute.build_owner_indexes `
   --snapshot-id 38710839ca6e1009 --artifacts-root copilot-v2/artifacts --device cpu
 ```
 
@@ -206,9 +206,9 @@ python -m copilot_v2.scripts.precompute.build_owner_indexes `
 
 Three things to start (two terminals + Ollama in background):
 
-**Terminal 1 — API server** (from repo root):
+**Terminal 1 â€” API server** (from repo root):
 
-Local mode (default — reads caches from Parquet files):
+Local mode (default â€” reads caches from Parquet files):
 
 Windows (PowerShell):
 ```powershell
@@ -260,7 +260,7 @@ uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --reload
 
 > **BigQuery prerequisite:** You must be authenticated (`gcloud auth application-default login`) and the tables must already be uploaded to BigQuery. See `copilot-v2/docs/BIGQUERY_CLOUD_PIPELINE.md` for upload instructions. The FAISS retrieval index always loads from local files regardless of `COPILOT_DATA_BACKEND`.
 
-**Terminal 2 — React UI:**
+**Terminal 2 â€” React UI:**
 
 ```bash
 cd copilot-v2/app/ui
@@ -276,29 +276,29 @@ The UI polls the `/health` endpoint on load and shows two badge types (top-right
 | Badge | Colour | Meaning |
 |---|---|---|
 | **API CHECKING** | Yellow | Waiting for the first health response |
-| **API ONLINE** | Green | All caches and retrieval index loaded — safe to submit |
-| **API DEGRADED** | Orange | API is running but one or more components failed to load — check `/health` response and run the missing precompute step |
-| **API OFFLINE** | Red | API is not reachable — check that the server is running |
+| **API ONLINE** | Green | All caches and retrieval index loaded â€” safe to submit |
+| **API DEGRADED** | Orange | API is running but one or more components failed to load â€” check `/health` response and run the missing precompute step |
+| **API OFFLINE** | Red | API is not reachable â€” check that the server is running |
 
 **Data backend badge** (appears once the first health response is received):
 
 | Badge | Colour | Meaning |
 |---|---|---|
-| **☁ BigQuery** | Blue | All three specialist caches loaded from BigQuery |
-| **☁ mixed** | Orange | BigQuery was attempted but at least one cache fell back to local files |
-| **⬡ local** | Grey | All caches loaded from local Parquet files |
+| **â˜ BigQuery** | Blue | All three specialist caches loaded from BigQuery |
+| **â˜ mixed** | Orange | BigQuery was attempted but at least one cache fell back to local files |
+| **â¬¡ local** | Grey | All caches loaded from local Parquet files |
 
-> **If you submit a query and the UI silently resets back to the query page**, the badge should show **API DEGRADED**. The most common cause is the retrieval index not being present at `artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` — download it from the shared Google Drive. If the badge shows **API ONLINE** but the reset still happens, check the API server terminal — FastAPI prints the full error traceback there.
+> **If you submit a query and the UI silently resets back to the query page**, the badge should show **API DEGRADED**. The most common cause is the retrieval index not being present at `artifacts/indexes/38710839ca6e1009/dense/intfloat_e5-large-v2/` â€” download it from the shared Google Drive. If the badge shows **API ONLINE** but the reset still happens, check the API server terminal â€” FastAPI prints the full error traceback there.
 
 > **First-run note:** On the very first startup, the retrieval agent downloads `intfloat/e5-large-v2` (~1.3 GB) from HuggingFace automatically. This requires internet access and will make the first startup take several minutes. The model is cached locally (in `~/.cache/huggingface/`) and subsequent startups are fast.
 
-> **Debate latency:** The `/debate/start`, `/debate/continue`, and `/debate/judge` steps each call Ollama LLMs and typically take **30–90 seconds** per step depending on your hardware. This is expected — the UI shows a loading state while waiting.
+> **Debate latency:** The `/debate/start`, `/debate/continue`, and `/debate/judge` steps each call Ollama LLMs and typically take **30â€“90 seconds** per step depending on your hardware. This is expected â€” the UI shows a loading state while waiting.
 
 > **Mock data fallback:** If the debate steps fail silently (e.g. Ollama times out or returns invalid JSON), the UI will display hardcoded placeholder plans rather than an error. If results look generic or identical across queries, check that Ollama is running and the models are pulled.
 
-> **Changing the API port:** The Vite dev proxy in `ui/vite.config.js` is hardcoded to `http://127.0.0.1:8000`. If you run the API on a different port, update that file to match — otherwise the UI will fail silently.
+> **Changing the API port:** The Vite dev proxy in `ui/vite.config.js` is hardcoded to `http://127.0.0.1:8000`. If you run the API on a different port, update that file to match â€” otherwise the UI will fail silently.
 
-> **Owner ID:** The UI sends `store_00` as the owner identifier — this is just a label used to name run output folders and has no effect on results.
+> **Owner ID:** The UI sends `store_00` as the owner identifier â€” this is just a label used to name run output folders and has no effect on results.
 
 **Verify the API is healthy:**
 
@@ -320,7 +320,7 @@ If a BigQuery cache fell back to local, the source field will show `"local_fallb
 
 If any cache shows `false`, run the corresponding precompute step above.
 
-> **Note:** If a cache file is missing entirely (not just empty), the API will return a 500 error on startup rather than a graceful `false`. If you see a 500 on `/health`, it means a required cache file was not found — run the corresponding precompute step and restart the server.
+> **Note:** If a cache file is missing entirely (not just empty), the API will return a 500 error on startup rather than a graceful `false`. If you see a 500 on `/health`, it means a required cache file was not found â€” run the corresponding precompute step and restart the server.
 
 ---
 
@@ -340,11 +340,11 @@ Env vars:
 - `COPILOT_SNAPSHOT_ID` (default: `38710839ca6e1009`)
 - `COPILOT_ARTIFACTS_ROOT` (default: `copilot-v2/artifacts`)
 - `COPILOT_OLLAMA_URL` (default: `http://localhost:11434`)
-- `COPILOT_DATA_BACKEND` — `local` (default) or `bigquery`
-- `GCP_PROJECT_ID` — required when `COPILOT_DATA_BACKEND=bigquery`
+- `COPILOT_DATA_BACKEND` â€” `local` (default) or `bigquery`
+- `GCP_PROJECT_ID` â€” required when `COPILOT_DATA_BACKEND=bigquery`
 - `BIGQUERY_DATASET` (default: `copilot_v2`)
 - `BIGQUERY_LOCATION` (default: `US`)
-- `COPILOT_BIGQUERY_FALLBACK_TO_LOCAL` — `1` (default) falls back to local Parquet if BigQuery fails; set to `0` to hard-fail
+- `COPILOT_BIGQUERY_FALLBACK_TO_LOCAL` â€” `1` (default) falls back to local Parquet if BigQuery fails; set to `0` to hard-fail
 
 ---
 
@@ -359,7 +359,7 @@ Env vars:
 | `run_{ts}_{owner}_cont/` | `/debate/continue` | `4_debate_advocate.json`, `5_debate_critic.json` |
 | `run_{ts}_{owner}_judge/` | `/debate/judge` | `8_debate_judge.json`, `9_final.json` |
 
-**BigQuery decision log** — only when `COPILOT_DATA_BACKEND=bigquery`. When the user clicks "Choose this plan" and rates their confidence in the UI, the frontend calls `POST /runs/log`, which appends one row per ranked action to the `operator_decision_log` table in BigQuery. Each row records the `run_id`, `goal`, `owner_id`, `product_id`, `action_type`, `title`, `rank`, which plan was chosen (`accepted=true`), and the confidence rating. (Price change pct is omitted pending the field rename in Bug 2 / S6.) Local files are still written as normal — the BigQuery write is additive.
+**BigQuery decision log** â€” only when `COPILOT_DATA_BACKEND=bigquery`. When the user clicks "Choose this plan" and rates their confidence in the UI, the frontend calls `POST /runs/log`, which appends one row per ranked action to the `operator_decision_log` table in BigQuery. Each row records the `run_id`, `goal`, `owner_id`, `product_id`, `action_type`, `title`, `rank`, which plan was chosen (`accepted=true`), and the confidence rating. (Price change pct is omitted pending the field rename in Bug 2 / S6.) Local files are still written as normal â€” the BigQuery write is additive.
 
 ---
 
@@ -369,6 +369,6 @@ See `APP_IMPLEMENTATION.md` for full details.
 
 | Item | Status |
 |---|---|
-| Inventory cache | Available on shared Google Drive — run `build_inventory_cache.py` to regenerate if needed |
-| `recommended_price_change_pct` | Not missing — generated by `build_pricing_training_table.py` |
-| Cloud LLM migration | Requires prompt re-validation — prompts were tuned for llama3.1:8b + qwen2.5:7b |
+| Inventory cache | Available on shared Google Drive â€” run `build_inventory_cache.py` to regenerate if needed |
+| `recommended_price_change_pct` | Not missing â€” generated by `build_pricing_training_table.py` |
+| Cloud LLM migration | Requires prompt re-validation â€” prompts were tuned for llama3.1:8b + qwen2.5:7b |

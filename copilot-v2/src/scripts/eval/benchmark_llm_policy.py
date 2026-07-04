@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -8,9 +8,9 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from copilot_v2.llm.ollama_client import OllamaClient
-from copilot_v2.runtime.debate import DebateConfig, run_chain_of_debate_safe
-from copilot_v2.runtime.orchestrator import (
+from llm.ollama_client import OllamaClient
+from runtime.debate import DebateConfig, run_chain_of_debate_safe
+from runtime.orchestrator import (
     OrchestratorConfig,
     OrchestratorContext,
     _load_inventory,

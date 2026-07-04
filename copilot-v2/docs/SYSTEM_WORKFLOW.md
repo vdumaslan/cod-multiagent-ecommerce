@@ -1,4 +1,4 @@
-# System workflow (owner-scoped orchestrator) — reproducible guide
+﻿# System workflow (owner-scoped orchestrator) â€” reproducible guide
 
 This document is the **single source of truth** for how the `copilot-v2` system turns a **business goal** into a **ranked plan of SKU-level actions**, scoped to an `owner_id` (store) and grounded in retrieval + signals.
 
@@ -9,10 +9,10 @@ This document is the **single source of truth** for how the `copilot-v2` system 
 
 At runtime, the system answers the question:
 
-> “Given a business goal for **store X**, which **products owned by store X** should we act on, and what should we do?”
+> â€œGiven a business goal for **store X**, which **products owned by store X** should we act on, and what should we do?â€
 
 ### Core ideas
-- **Owner-scoped retrieval**: we retrieve candidates **within the owner’s catalog** (not global-then-filter).
+- **Owner-scoped retrieval**: we retrieve candidates **within the ownerâ€™s catalog** (not global-then-filter).
 - **Grounding first**: every recommendation is tied to a `product_id` with evidence and attached signals.
 - **Optional LLM policy**: an LLM can refine the plan, but is constrained to only choose from grounded candidates.
 
@@ -21,49 +21,49 @@ At runtime, the system answers the question:
 ## Components (what exists in the repo)
 
 ### Orchestrator server (API)
-- **HTTP server**: `copilot-v2/src/copilot_v2/runtime/server.py`
-- **CLI entrypoint**: `copilot-v2/src/copilot_v2/scripts/orchestrator_server.py`
+- **HTTP server**: `copilot-v2/src/runtime/server.py`
+- **CLI entrypoint**: `copilot-v2/src/scripts/orchestrator_server.py`
 - Endpoints:
   - `GET /health`
   - `POST /orchestrate`
 
-### Retrieval subsystem (“retrieval agent”)
+### Retrieval subsystem (â€œretrieval agentâ€)
 Retrieval is hybrid (dense + lexical) and is used to map:
 
-`goal_text` → top matching product documents → candidate `product_id`s
+`goal_text` â†’ top matching product documents â†’ candidate `product_id`s
 
 Code:
-- `copilot-v2/src/copilot_v2/runtime/orchestrator.py` (`retrieve_evidence`)
+- `copilot-v2/src/runtime/orchestrator.py` (`retrieve_evidence`)
 
 Artifacts:
 - **Owner-scoped dense index**: `copilot-v2/artifacts/indexes/<snapshot_id>/owners/<owner_id>/dense/intfloat_e5-large-v2/`
 
-### Pricing subsystem (“pricing agent”)
+### Pricing subsystem (â€œpricing agentâ€)
 Pricing provides:
 
-`product_id` → `recommended_price_change_pct`
+`product_id` â†’ `recommended_price_change_pct`
 
 In demos, this is usually served from a **precomputed cache** so requests are fast.
 The server can load either:
 - JSON: `pricing_cache.json`
 - Parquet: `pricing_cache.parquet` (recommended; smaller + faster to move to cloud)
 
-### Sentiment subsystem (“sentiment agent”)
+### Sentiment subsystem (â€œsentiment agentâ€)
 Sentiment provides aggregated review probabilities and a score per product:
 
-`product_id` → `{n_reviews, p_pos, p_neu, p_neg, sentiment_score}`
+`product_id` â†’ `{n_reviews, p_pos, p_neu, p_neg, sentiment_score}`
 
 In demos, this is usually served from a **precomputed cache**.
 The server can load either:
 - JSON: `sentiment_cache.json`
 - Parquet: `sentiment_cache.parquet` (recommended)
 
-### Optional LLM debate policy (“orchestrator agent policy”)
+### Optional LLM debate policy (â€œorchestrator agent policyâ€)
 If enabled, an LLM performs a chain-of-debate and outputs a strict JSON plan constrained to the candidate `product_id`s.
 
 Code:
-- `copilot-v2/src/copilot_v2/runtime/debate.py`
-- Ollama client: `copilot-v2/src/copilot_v2/llm/ollama_client.py`
+- `copilot-v2/src/runtime/debate.py`
+- Ollama client: `copilot-v2/src/llm/ollama_client.py`
 
 ---
 
@@ -76,7 +76,7 @@ The dataset snapshot does not natively include `store_id`/`owner_id`, so we crea
 ### 1) Build per-owner retrieval indexes
 
 Script:
-- `copilot-v2/src/copilot_v2/scripts/precompute/build_owner_indexes.py`
+- `copilot-v2/src/scripts/precompute/build_owner_indexes.py`
 
 What it builds:
 - For each owner, a FAISS dense index + corpus parquet + index metadata at:
@@ -87,7 +87,7 @@ Command example:
 
 ```bash
 cd /path/to/cod-multiagent-ecommerce
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_owner_indexes \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.precompute.build_owner_indexes \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --n-owners 8 \
@@ -136,7 +136,7 @@ Download the following from Google Drive and unzip into the **repo root** so pat
   - `copilot-v2/artifacts/models/38710839ca6e1009/sentiment/distilroberta-base_final_500k_slice_winner/`
 
 **Note (sentiment cache vs sentiment model):** At runtime, the server consumes a lightweight sentiment cache keyed by `product_id` with summary fields (`n_reviews`, `p_pos`, `p_neu`, `p_neg`). The cache can be Parquet (preferred) or JSON (legacy). You can generate that cache either:
-- **From the winner DistilRoBERTa model** (recommended for “production-like” signals), or
+- **From the winner DistilRoBERTa model** (recommended for â€œproduction-likeâ€ signals), or
 - **From star ratings only** (much faster; good for smoke tests).
 
 ### Where to unzip (critical)
@@ -169,12 +169,12 @@ ls copilot-v2/artifacts/caches/38710839ca6e1009/sentiment
 
 ```bash
 # Build pricing labels first (required before pricing cache).
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_pricing_training_table \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.precompute.build_pricing_training_table \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts
 
 # Build pricing cache (winner TabPFN; requires TabPFN + model artifact + step above).
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_pricing_cache \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.precompute.build_pricing_cache \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --device cuda \
@@ -182,7 +182,7 @@ PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.prec
 
 # Build sentiment cache (winner DistilRoBERTa; production-like).
 # By default we cap to 24 reviews per product for speed; set --max-reviews-per-product 0 to score all reviews (slow).
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_sentiment_cache \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.precompute.build_sentiment_cache \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --approach distilroberta \
@@ -193,14 +193,14 @@ PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.prec
   --write-json
 
 # Or: build sentiment cache from ratings only (fast)
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_sentiment_cache \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.precompute.build_sentiment_cache \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --approach ratings \
   --write-json
 
 # Build inventory cache (rule-based, no model needed).
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.precompute.build_inventory_cache \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.precompute.build_inventory_cache \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --write-json
@@ -218,7 +218,7 @@ cp copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.json \
 If you need to rewrite older indexes that used absolute paths in `index_meta.json`, run:
 
 ```bash
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.rewrite_index_meta_paths \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.rewrite_index_meta_paths \
   --indexes-root copilot-v2/artifacts/indexes/38710839ca6e1009/owners
 ```
 
@@ -238,7 +238,7 @@ Before running backend/UI, teammates should **download the full cache from Googl
 ```bash
 # Terminal 1: backend
 cd /path/to/cod-multiagent-ecommerce
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.orchestrator_server \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --grounding-cache-dir copilot-v2/artifacts/caches/38710839ca6e1009 \
@@ -294,7 +294,7 @@ ls -lh copilot-v2/artifacts/caches/38710839ca6e1009/sentiment/sentiment_cache.pa
 ```bash
 # terminal 1 (repo root)
 cd /path/to/cod-multiagent-ecommerce
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.orchestrator_server \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --grounding-cache-dir copilot-v2/artifacts/caches/38710839ca6e1009 \
@@ -343,14 +343,14 @@ In successful responses, confirm:
 
 ---
 
-## Runtime workflow (request → response)
+## Runtime workflow (request â†’ response)
 
 ### Step 0) Start the server (load indexes + caches)
 
 Recommended: point the server to the full caches folder so it can load Parquet or JSON.
 
 ```bash
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.orchestrator_server \
   --snapshot-id 38710839ca6e1009 \
   --artifacts-root copilot-v2/artifacts \
   --grounding-cache-dir copilot-v2/artifacts/caches/38710839ca6e1009 \
@@ -361,7 +361,7 @@ PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orch
 Cloud-friendly option (downloads cache dir from GCS, then loads locally):
 
 ```bash
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.orchestrator_server \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.orchestrator_server \
   --snapshot-id 38710839ca6e1009 \
   --grounding-cache-uri gs://<YOUR_BUCKET>/copilot-v2/artifacts/caches/38710839ca6e1009 \
   --host 0.0.0.0 \
@@ -378,7 +378,7 @@ The request must include:
 If `owner_id` is missing:
 - server returns `{ "ok": false, "error": "missing_owner_id" }`
 
-If the owner’s index is missing:
+If the ownerâ€™s index is missing:
 - server returns `{ "ok": false, "error": "missing_owner_index", "owner_id": "<...>" }`
 
 ### Step 2) Server routes to owner-scoped retriever
@@ -386,7 +386,7 @@ The server loads (and caches) the retriever from:
 
 `copilot-v2/artifacts/indexes/<snapshot_id>/owners/<owner_id>/dense/intfloat_e5-large-v2/index_meta.json`
 
-This ensures retrieval happens **within the owner’s catalog**.
+This ensures retrieval happens **within the ownerâ€™s catalog**.
 
 ### Step 3) Retrieval produces candidates + evidence
 Retrieval uses:
@@ -405,8 +405,8 @@ For each candidate, the orchestrator attaches:
   - Values come from the loaded **pricing cache** (Parquet `pricing_cache.parquet` or legacy JSON `pricing_cache.json`).
   - **Candidate selection**: if a pricing cache is loaded, the orchestrator **prefers** retrieved SKUs that exist in that cache (in retrieval score order), then fills any remaining slots up to `top_n_actions` with the next-best retrieved SKUs even if they are **not** in the cache.
   - **Per-action `pricing.source`**:
-    - `"cache"` — `recommended_price_change_pct` is from the TabPFN-backed cache.
-    - `"fallback"` — SKU is not in the cache; the server uses **`0.0%`** so the UI never shows `"none"` while pricing is enabled.
+    - `"cache"` â€” `recommended_price_change_pct` is from the TabPFN-backed cache.
+    - `"fallback"` â€” SKU is not in the cache; the server uses **`0.0%`** so the UI never shows `"none"` while pricing is enabled.
   - When `enable_pricing=false`, missing cache entries use `"none"` (pricing not wired for that request).
   - **`trace.pricing`**: `wired` reflects whether pricing was requested; `source` is `"cache+fallback"` when both a cache is loaded and pricing is enabled (mixed actions are possible), `"fallback"` if pricing is enabled but no cache loaded, or `"none"` if pricing is disabled.
 - **Sentiment**:
@@ -428,11 +428,11 @@ If `use_llm_policy=true`, the system runs a debate policy to refine the baseline
 
 Supported modes:
 
-- **`debate_mode = "acj"` (default)**: Advocate → Critic → Judge
+- **`debate_mode = "acj"` (default)**: Advocate â†’ Critic â†’ Judge
   - Advocate proposes the strongest plan given retrieval + pricing + sentiment + inventory signals.
   - Critic challenges the plan and highlights risks/conflicts.
   - Judge produces the final `ranked_actions` JSON.
-- **`debate_mode = "legacy"`**: specialists → peer review → judge (older pipeline)
+- **`debate_mode = "legacy"`**: specialists â†’ peer review â†’ judge (older pipeline)
 
 ACJ **prompt variant** (do not mix with model-grid runs; compare in separate replays):
 
@@ -446,7 +446,7 @@ Essential safety rules:
 - LLM may only use the candidate `product_id`s provided
 - output must be strict JSON and is validated
 - duplicates are removed during validation
-- if judge output can’t be validated after retries, the system falls back to the grounded baseline plan (and records that in trace)
+- if judge output canâ€™t be validated after retries, the system falls back to the grounded baseline plan (and records that in trace)
 
 ### Step 7) Final response JSON returned
 Response includes:
@@ -471,7 +471,7 @@ npm run dev
 
 ---
 
-## “Essential rules” (quick reference)
+## â€œEssential rulesâ€ (quick reference)
 
 - **Owner scoping**:
   - `owner_id` is required on every request.
@@ -520,7 +520,7 @@ To compare debate model combinations fairly:
 1) Cache specialist outputs once (baseline pipeline only):
 
 ```bash
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.cache_specialist_outputs \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.cache_specialist_outputs \
   --snapshot-id 38710839ca6e1009 \
   --owner-id store_00 \
   --goals-json copilot-v2/artifacts/evals/38710839ca6e1009/llm_policy_benchmark_goals_120.json \
@@ -530,7 +530,7 @@ PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.cach
 2) Replay debate only over the saved inputs:
 
 ```bash
-PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m copilot_v2.scripts.replay_debate_models \
+PYTHONPATH=copilot-v2/src .venv-copilot-v2/bin/python -m scripts.replay_debate_models \
   --inputs-jsonl copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/<RUN_ID>/specialist_inputs.jsonl \
   --out-dir copilot-v2/artifacts/evals/38710839ca6e1009/debate_replay/<RUN_ID>/replay_results \
   --advocate-models llama3.1:8b,mistral:7b-instruct-v0.3-q4_K_M \
@@ -544,7 +544,7 @@ Outputs:
 
 ---
 
-## Where the “winners” are documented
+## Where the â€œwinnersâ€ are documented
 
 - Full training record and rationale:
   - `copilot-v2/docs/MODEL_TRAINING_AND_RESULTS.md`

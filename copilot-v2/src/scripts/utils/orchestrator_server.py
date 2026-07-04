@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from copilot_v2.runtime.server import run_server
+from runtime.server import run_server
 
 
 def main() -> None:

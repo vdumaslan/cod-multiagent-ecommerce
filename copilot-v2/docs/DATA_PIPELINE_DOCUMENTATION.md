@@ -1,4 +1,4 @@
-# Copilot V2 Data Pipeline Documentation
+﻿# Copilot V2 Data Pipeline Documentation
 
 ## Purpose
 
@@ -123,7 +123,7 @@ The upload script reads local snapshot artifacts and writes them into BigQuery.
 Script:
 
 ```text
-copilot-v2/src/copilot_v2/scripts/cloud/upload_bigquery_snapshot.py
+copilot-v2/src/scripts/cloud/upload_bigquery_snapshot.py
 ```
 
 Main command:
@@ -135,7 +135,7 @@ $env:GCP_PROJECT_ID = "linear-theater-436300-r9"
 $env:BIGQUERY_DATASET = "copilot_v2"
 $env:BIGQUERY_LOCATION = "US"
 
-.venv312\Scripts\python.exe -m copilot_v2.scripts.cloud.upload_bigquery_snapshot `
+.venv312\Scripts\python.exe -m scripts.cloud.upload_bigquery_snapshot `
   --artifacts-root copilot-v2/artifacts `
   --snapshot-id 38710839ca6e1009 `
   --table-set full `
@@ -158,7 +158,7 @@ Validation checks run after upload and through GitHub Actions.
 Script:
 
 ```text
-copilot-v2/src/copilot_v2/scripts/cloud/validate_bigquery_snapshot.py
+copilot-v2/src/scripts/cloud/validate_bigquery_snapshot.py
 ```
 
 Validation checks:
@@ -343,9 +343,9 @@ The recommendation changes from promote/reprice to hold/restock/investigate depe
 
 | File | Purpose |
 |---|---|
-| `copilot-v2/src/copilot_v2/scripts/cloud/cloud_bigquery.py` | BigQuery table specs, upload helpers, validation helpers |
-| `copilot-v2/src/copilot_v2/scripts/cloud/upload_bigquery_snapshot.py` | Upload CLI |
-| `copilot-v2/src/copilot_v2/scripts/cloud/validate_bigquery_snapshot.py` | Validation CLI |
+| `copilot-v2/src/scripts/cloud/cloud_bigquery.py` | BigQuery table specs, upload helpers, validation helpers |
+| `copilot-v2/src/scripts/cloud/upload_bigquery_snapshot.py` | Upload CLI |
+| `copilot-v2/src/scripts/cloud/validate_bigquery_snapshot.py` | Validation CLI |
 | `copilot-v2/app/bigquery_cache.py` | Runtime BigQuery cache loader |
 | `copilot-v2/app/agents/pricing_agent.py` | Pricing cache backend selection |
 | `copilot-v2/app/agents/sentiment_agent.py` | Sentiment cache backend selection |

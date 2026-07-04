@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 from sentence_transformers import SentenceTransformer
 
-from copilot_v2.runtime.orchestrator import _default_owner_for_product
+from runtime.orchestrator import _default_owner_for_product
 
 
 def _write_index_meta(

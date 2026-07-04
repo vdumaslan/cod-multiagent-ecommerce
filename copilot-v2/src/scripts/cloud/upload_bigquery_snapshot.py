@@ -1,4 +1,4 @@
-"""Upload a copilot-v2 artifact snapshot into BigQuery.
+﻿"""Upload a copilot-v2 artifact snapshot into BigQuery.
 
 Default mode is a dry run so it can be used safely on machines without GCP
 credentials. Pass --no-dry-run to perform the upload.
@@ -10,7 +10,7 @@ import json
 import sys
 from typing import Any
 
-from copilot_v2.scripts.cloud.cloud_bigquery import (
+from scripts.cloud.cloud_bigquery import (
     BigQueryPipelineConfig,
     ensure_control_tables,
     ensure_dataset,
@@ -96,7 +96,7 @@ def main() -> int:
     ensure_control_tables(client, cfg)
 
     try:
-        from copilot_v2.scripts.cloud.cloud_bigquery import utc_now_iso
+        from scripts.cloud.cloud_bigquery import utc_now_iso
 
         started_at = utc_now_iso()
         for name in table_names:
@@ -138,7 +138,7 @@ def main() -> int:
         return 0
     except Exception as exc:
         try:
-            from copilot_v2.scripts.cloud.cloud_bigquery import utc_now_iso
+            from scripts.cloud.cloud_bigquery import utc_now_iso
 
             record_pipeline_run(
                 client=client,

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -7,15 +7,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from copilot_v2.llm.ollama_client import OllamaClient
-from copilot_v2.runtime.debate import (
+from llm.ollama_client import OllamaClient
+from runtime.debate import (
     DebateACJConfig,
     DebateConfig,
     run_advocate_critic_judge_safe,
     run_chain_of_debate_safe,
 )
-from copilot_v2.runtime.cache_io import load_grounding_caches_into_ctx, resolve_grounding_cache_dir
-from copilot_v2.runtime.orchestrator import (
+from runtime.cache_io import load_grounding_caches_into_ctx, resolve_grounding_cache_dir
+from runtime.orchestrator import (
     OrchestratorConfig,
     OrchestratorContext,
     _load_inventory,
@@ -273,7 +273,7 @@ def run_server(
     # Synthetic multi-tenant: deterministically assign each product_id to a store.
     # This enables owner-scoped planning even though the underlying dataset lacks store_id.
     try:
-        from copilot_v2.runtime.orchestrator import _default_owner_for_product
+        from runtime.orchestrator import _default_owner_for_product
 
         ctx.product_owner = {str(pid): _default_owner_for_product(str(pid)) for pid in ctx.products["product_id"].astype(str).tolist()}
     except Exception:

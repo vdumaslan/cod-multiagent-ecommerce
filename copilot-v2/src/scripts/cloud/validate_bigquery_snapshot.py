@@ -1,11 +1,11 @@
-"""Validate a copilot-v2 snapshot locally or in BigQuery."""
+﻿"""Validate a copilot-v2 snapshot locally or in BigQuery."""
 from __future__ import annotations
 
 import argparse
 import json
 from typing import Any
 
-from copilot_v2.scripts.cloud.cloud_bigquery import (
+from scripts.cloud.cloud_bigquery import (
     BigQueryPipelineConfig,
     ensure_control_tables,
     load_bigquery_client,

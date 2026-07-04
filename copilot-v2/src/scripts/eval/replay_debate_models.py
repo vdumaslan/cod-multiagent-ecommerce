@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -8,9 +8,9 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from copilot_v2.eval.debate_rubric import score_debate_output
-from copilot_v2.llm.ollama_client import OllamaClient
-from copilot_v2.runtime.debate import DebateACJConfig, run_advocate_critic_judge_safe
+from eval.debate_rubric import score_debate_output
+from llm.ollama_client import OllamaClient
+from runtime.debate import DebateACJConfig, run_advocate_critic_judge_safe
 
 
 @dataclass(frozen=True)

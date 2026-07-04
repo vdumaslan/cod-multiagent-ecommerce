@@ -1,18 +1,18 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
 from typing import Literal
 
-from copilot_v2.llm.json_schema import (
+from llm.json_schema import (
     SchemaError,
     extract_json_object,
     validate_peer_review,
     validate_ranked_actions,
     validate_specialist_proposal,
 )
-from copilot_v2.llm.ollama_client import OllamaClient
+from llm.ollama_client import OllamaClient
 
 
 def _extract_json_with_retries(
@@ -491,8 +491,8 @@ def _judge_prompt_acj(*, payload: dict[str, Any], top_k: int, prompt_style: str,
     if style == "structured_rationale":
         # Stronger emphasis on concise, structured bullets (safer than free-form CoT).
         extra = (
-            "Write rationale_bullets as short, grounded evidence statements (2–4 bullets).\n"
-            "Write risk_bullets as constraint/risk checks (1–3 bullets).\n"
+            "Write rationale_bullets as short, grounded evidence statements (2â€“4 bullets).\n"
+            "Write risk_bullets as constraint/risk checks (1â€“3 bullets).\n"
         )
     else:
         extra = ""

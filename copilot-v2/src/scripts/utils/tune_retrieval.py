@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 """
 Compatibility alias.
@@ -7,7 +7,7 @@ Compatibility alias.
 but the maintained implementation lives in `tune_retrieval_dense.py`.
 """
 
-from copilot_v2.scripts.training.tune_retrieval_dense import main
+from scripts.training.tune_retrieval_dense import main
 
 
 if __name__ == "__main__":

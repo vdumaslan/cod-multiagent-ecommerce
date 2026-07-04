@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 """
 Stage 1 ingestion entrypoint for Copilot V2.
